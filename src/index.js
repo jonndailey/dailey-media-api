@@ -5,11 +5,19 @@ import morgan from 'morgan';
 import config from './config/index.js';
 import healthRoutes from './routes/health.js';
 import mediaRoutes from './routes/media.js';
+import filesRoutes from './routes/files.js';
 import uploadRoutes from './routes/upload.js';
+// import apiKeyRoutes from './routes/apiKeys.js'; // Replaced by DAILEY CORE auth
+import analyticsRoutes from './routes/analytics.js';
 import { errorHandler } from './middleware/error.js';
 import { requestLogger } from './middleware/logger.js';
+import databaseService from './services/databaseService.js';
+import analyticsService from './services/analyticsService.js';
 
 const app = express();
+
+// Initialize database service
+await databaseService.initialize();
 
 // Security middleware
 app.use(helmet());
@@ -28,23 +36,57 @@ app.use(requestLogger);
 
 // API routes
 app.use('/health', healthRoutes);
-app.use('/api/media', mediaRoutes);
+// app.use('/api/keys', apiKeyRoutes); // Replaced by DAILEY CORE auth
+app.use('/api/files', filesRoutes);  // New comprehensive files endpoint
+app.use('/api/media', mediaRoutes);   // Kept for backwards compatibility
 app.use('/api/upload', uploadRoutes);
+app.use('/api/analytics', analyticsRoutes);  // Analytics and stats
 
 // API info endpoint
 app.get('/api', (req, res) => {
   res.json({
-    name: 'Dailey Media API',
-    version: '1.0.0',
-    description: 'Standalone media API for the DAILEY ecosystem',
+    name: 'Dailey Storage API',
+    version: '2.0.0',
+    description: 'Universal file storage API for the DAILEY ecosystem',
     endpoints: {
       health: '/health',
-      media: '/api/media',
-      upload: '/api/upload'
+      files: '/api/files',     // All file types
+      media: '/api/media',     // Legacy media endpoint
+      upload: '/api/upload',   // Upload any file type
+      analytics: '/api/analytics'  // Usage statistics
     },
+    features: [
+      'Accepts ALL file types',
+      'Image processing and thumbnails',
+      'File categorization',
+      'Metadata extraction',
+'DAILEY CORE authentication & RBAC'
+    ],
     timestamp: new Date().toISOString()
   });
 });
+
+// Development debug endpoint for auth service status
+if (config.isDevelopment) {
+  app.get('/debug/auth-status', async (req, res) => {
+    try {
+      const { checkAuthServiceHealth } = await import('./middleware/dailey-auth.js');
+      const isHealthy = await checkAuthServiceHealth();
+      res.json({
+        success: true,
+        dailey_core_status: isHealthy ? 'healthy' : 'unavailable',
+        auth_service_url: process.env.DAILEY_CORE_URL || 'http://localhost:3002',
+        message: 'This endpoint is only available in development mode'
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to check auth service status',
+        details: error.message
+      });
+    }
+  });
+}
 
 // 404 handler
 app.use('*', (req, res) => {

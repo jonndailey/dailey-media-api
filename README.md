@@ -1,11 +1,11 @@
 # Dailey Media API
 
-Standalone media API for the DAILEY ecosystem - handles file uploads, processing, and delivery across all Dailey applications.
+Universal content platform API for the DAILEY ecosystem - handles all types of digital content including images, documents, videos, code, archives, and any file type across all Dailey applications.
 
 ## 🚀 Features
 
-- **Multi-format Support**: Handles standard image formats (JPEG, PNG, GIF, WebP) and professional formats (RAW, HEIC, TIFF)
-- **Image Processing**: Automatic thumbnail generation and on-demand transformations
+- **Universal File Support**: Handles ALL file types - images (JPEG, PNG, GIF, WebP, RAW, HEIC), documents (PDF, Office, text), code, archives (ZIP, TAR), videos, and any digital content
+- **Smart Processing**: Automatic thumbnail generation for images, text preview extraction, metadata parsing, and file categorization
 - **Secure Access**: JWT authentication with Dailey Core integration
 - **Scalable Storage**: S3-compatible storage with CDN support
 - **Audit Logging**: Comprehensive tracking of all media operations
@@ -54,11 +54,21 @@ This API is designed as a standalone microservice that can be consumed by:
    ```
 
 4. **Start development server**
+   
+   **Option A: Standard Development (using nodemon)**
    ```bash
    npm run dev
    ```
+   
+   **Option B: PM2 Process Manager (recommended for development)**
+   ```bash
+   npm run pm2:start    # Start all services
+   npm run pm2:status   # Check status
+   npm run pm2:logs     # View logs
+   npm run pm2:stop     # Stop all services
+   ```
 
-The API will be available at `http://localhost:4000`
+The API will be available at `http://localhost:5173` (Backend) and `http://localhost:5174` (Frontend)
 
 ## 🏃‍♂️ Quick Start
 
@@ -66,13 +76,13 @@ Test the API endpoints:
 
 ```bash
 # Health check
-curl http://localhost:4000/health
+curl http://localhost:5173/health
 
 # API information
-curl http://localhost:4000/api
+curl http://localhost:5173/api
 
-# Upload a file (coming soon)
-# curl -X POST -F "file=@image.jpg" http://localhost:4000/api/upload
+# Upload a file
+curl -X POST -F "file=@image.jpg" http://localhost:5173/api/upload
 ```
 
 ## 🔐 Authentication
@@ -80,7 +90,7 @@ curl http://localhost:4000/api
 The API uses JWT tokens issued by Dailey Core. Include the token in requests:
 
 ```bash
-curl -H "Authorization: Bearer YOUR_JWT_TOKEN" http://localhost:4000/api/media
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" http://localhost:5173/api/media
 ```
 
 ## 📊 Database Schema
@@ -103,11 +113,13 @@ The API is designed to deploy on Dailey Cloud with:
 
 - ✅ Basic project structure and Express server
 - ✅ Health endpoints and middleware
-- 🔄 Media utilities extraction (in progress)
-- ⏳ File upload endpoints
-- ⏳ JWT authentication
-- ⏳ Database schema implementation
-- ⏳ Image processing pipeline
+- ✅ File upload endpoints (all file types)
+- ✅ DAILEY CORE authentication integration
+- ✅ Image processing pipeline with Sharp
+- ✅ Web interface for file management
+- ✅ Analytics and monitoring
+- ✅ PM2 process management
+- ✅ Database schema implementation
 - ⏳ Deployment configuration
 
 ## 🤝 Contributing

@@ -1,0 +1,2 @@
+This is a test text file for the Dailey Storage API.
+It can now handle ANY file type, not just images!

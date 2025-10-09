@@ -2,11 +2,12 @@ import express from 'express';
 import { authenticateToken, requireScope } from '../middleware/dailey-auth.js';
 import databaseService from '../services/databaseService.js';
 import storageService from '../services/storageService.js';
+import fileService from '../services/fileService.js';
 import { logInfo, logError } from '../middleware/logger.js';
 
 const router = express.Router();
 
-// List media items with pagination and filtering
+// List files with pagination and filtering
 router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
   try {
     const {
@@ -15,8 +16,10 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
       order_by = 'uploaded_at',
       order_direction = 'DESC',
       search,
+      category, // image, video, document, code, etc
       mime_type,
-      processing_status
+      min_size,
+      max_size
     } = req.query;
 
     // If database is available, use it
@@ -27,8 +30,10 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
       };
 
       if (search) filters.search = search;
+      if (category) filters.category = category;
       if (mime_type) filters.mime_type = mime_type;
-      if (processing_status) filters.processing_status = processing_status;
+      if (min_size) filters.min_size = parseInt(min_size);
+      if (max_size) filters.max_size = parseInt(max_size);
 
       const pagination = {
         limit: Math.min(parseInt(limit), 100),
@@ -40,16 +45,20 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
       const results = await databaseService.searchMediaFiles(filters, pagination);
       const totalCount = await databaseService.countMediaFiles(filters);
 
-      // Add URLs to each media file
-      const filesWithUrls = results.map(file => ({
-        ...file,
-        public_url: storageService.getPublicUrl(file.storage_key),
-        thumbnail_url: file.thumbnail_key ? storageService.getPublicUrl(file.thumbnail_key) : null
-      }));
+      // Add URLs and type info to each file
+      const filesWithMetadata = results.map(file => {
+        const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
+        return {
+          ...file,
+          category: typeInfo.category,
+          public_url: storageService.getPublicUrl(file.storage_key),
+          thumbnail_url: file.thumbnail_key ? storageService.getPublicUrl(file.thumbnail_key) : null
+        };
+      });
 
       res.json({
         success: true,
-        files: filesWithUrls,
+        files: filesWithMetadata,
         pagination: {
           total: totalCount,
           limit: pagination.limit,
@@ -67,74 +76,63 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
           limit: parseInt(limit),
           offset: parseInt(offset),
           has_more: false
-        }
+        },
+        message: 'Database not configured. Files are stored but not indexed.'
       });
     }
   } catch (error) {
     logError(error, { 
-      context: 'media.list',
+      context: 'files.list',
       userId: req.userId 
     });
     
     res.status(500).json({
       success: false,
-      error: 'Failed to list media files'
+      error: 'Failed to list files'
     });
   }
 });
 
-// Get media item by ID
-router.get('/files/:id', authenticateToken, requireScope('read'), async (req, res) => {
+// Get file by ID
+router.get('/:id', authenticateToken, requireScope('read'), async (req, res) => {
   try {
     const { id } = req.params;
     
     if (databaseService.isAvailable()) {
-      const media = await databaseService.getMediaFile(id);
+      const file = await databaseService.getMediaFile(id);
       
-      if (!media) {
+      if (!file) {
         return res.status(404).json({
           success: false,
-          error: 'Media not found'
+          error: 'File not found'
         });
       }
 
       // Check access permissions
-      if (media.user_id !== req.userId && !req.userRoles.some(role => ['core.admin', 'tenant.admin'].includes(role))) {
+      if (file.user_id !== req.userId && !req.apiKey.permissions.includes('admin')) {
         return res.status(403).json({
           success: false,
           error: 'Access denied'
         });
       }
 
-      // Get variants
+      // Get variants if any
       const variants = await databaseService.getMediaVariants(id);
       const variantsWithUrls = variants.map(v => ({
         ...v,
         url: storageService.getPublicUrl(v.storage_key)
       }));
 
-      // Track file access analytics
-      try {
-        const userContext = {
-          userId: req.userId,
-          user: req.user,
-          email: req.user?.email,
-          roles: req.userRoles,
-          userAgent: req.get('User-Agent'),
-          ip: req.ip
-        };
-        
-        await analyticsService.trackFileAccess(id, userContext);
-      } catch (analyticsError) {
-        logError(analyticsError, { context: 'media.access.analytics', mediaId: id });
-        // Don't fail the request if analytics fails
-      }
+      // Get type info
+      const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
 
       res.json({
         success: true,
-        media: {
-          ...media,
-          public_url: storageService.getPublicUrl(media.storage_key),
+        file: {
+          ...file,
+          category: typeInfo.category,
+          mime: typeInfo.mime,
+          public_url: storageService.getPublicUrl(file.storage_key),
           variants: variantsWithUrls
         }
       });
@@ -146,35 +144,35 @@ router.get('/files/:id', authenticateToken, requireScope('read'), async (req, re
     }
   } catch (error) {
     logError(error, {
-      context: 'media.getById',
+      context: 'files.getById',
       id: req.params.id
     });
     
     res.status(500).json({
       success: false,
-      error: 'Failed to retrieve media'
+      error: 'Failed to retrieve file'
     });
   }
 });
 
-// Update media item
-router.put('/files/:id', authenticateToken, requireScope('upload'), async (req, res) => {
+// Update file metadata
+router.put('/:id', authenticateToken, requireScope('upload'), async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
     
     if (databaseService.isAvailable()) {
-      const media = await databaseService.getMediaFile(id);
+      const file = await databaseService.getMediaFile(id);
       
-      if (!media) {
+      if (!file) {
         return res.status(404).json({
           success: false,
-          error: 'Media not found'
+          error: 'File not found'
         });
       }
 
       // Check permissions
-      if (media.user_id !== req.userId && !req.userRoles.some(role => ['core.admin', 'tenant.admin'].includes(role))) {
+      if (file.user_id !== req.userId && !req.apiKey.permissions.includes('admin')) {
         return res.status(403).json({
           success: false,
           error: 'Access denied'
@@ -182,7 +180,7 @@ router.put('/files/:id', authenticateToken, requireScope('upload'), async (req, 
       }
 
       // Update allowed fields
-      const allowedUpdates = ['title', 'description', 'alt_text', 'is_public'];
+      const allowedUpdates = ['title', 'description', 'alt_text', 'is_public', 'tags', 'metadata'];
       const filteredUpdates = {};
       
       for (const field of allowedUpdates) {
@@ -192,11 +190,11 @@ router.put('/files/:id', authenticateToken, requireScope('upload'), async (req, 
       }
 
       await databaseService.updateMediaFile(id, filteredUpdates);
-      const updatedMedia = await databaseService.getMediaFile(id);
+      const updatedFile = await databaseService.getMediaFile(id);
 
       res.json({
         success: true,
-        media: updatedMedia
+        file: updatedFile
       });
     } else {
       res.status(503).json({
@@ -206,35 +204,35 @@ router.put('/files/:id', authenticateToken, requireScope('upload'), async (req, 
     }
   } catch (error) {
     logError(error, {
-      context: 'media.update',
+      context: 'files.update',
       id: req.params.id
     });
     
     res.status(500).json({
       success: false,
-      error: 'Failed to update media'
+      error: 'Failed to update file'
     });
   }
 });
 
-// Delete media item
-router.delete('/files/:id', authenticateToken, requireScope('upload'), async (req, res) => {
+// Delete file
+router.delete('/:id', authenticateToken, requireScope('upload'), async (req, res) => {
   try {
     const { id } = req.params;
     const { permanent = false } = req.query;
     
     if (databaseService.isAvailable()) {
-      const media = await databaseService.getMediaFile(id);
+      const file = await databaseService.getMediaFile(id);
       
-      if (!media) {
+      if (!file) {
         return res.status(404).json({
           success: false,
-          error: 'Media not found'
+          error: 'File not found'
         });
       }
 
       // Check permissions
-      if (media.user_id !== req.userId && !req.userRoles.some(role => ['core.admin', 'tenant.admin'].includes(role))) {
+      if (file.user_id !== req.userId && !req.apiKey.permissions.includes('admin')) {
         return res.status(403).json({
           success: false,
           error: 'Access denied'
@@ -243,7 +241,7 @@ router.delete('/files/:id', authenticateToken, requireScope('upload'), async (re
 
       if (permanent) {
         // Delete from storage
-        await storageService.deleteFile(media.storage_key);
+        await fileService.deleteFile(file.storage_key);
         
         // Delete variants
         const variants = await databaseService.getMediaVariants(id);
@@ -260,7 +258,7 @@ router.delete('/files/:id', authenticateToken, requireScope('upload'), async (re
 
       res.json({
         success: true,
-        message: permanent ? 'Media permanently deleted' : 'Media moved to trash'
+        message: permanent ? 'File permanently deleted' : 'File moved to trash'
       });
     } else {
       res.status(503).json({
@@ -270,13 +268,13 @@ router.delete('/files/:id', authenticateToken, requireScope('upload'), async (re
     }
   } catch (error) {
     logError(error, {
-      context: 'media.delete',
+      context: 'files.delete',
       id: req.params.id
     });
     
     res.status(500).json({
       success: false,
-      error: 'Failed to delete media'
+      error: 'Failed to delete file'
     });
   }
 });
@@ -284,9 +282,9 @@ router.delete('/files/:id', authenticateToken, requireScope('upload'), async (re
 // Batch operations
 router.post('/batch', authenticateToken, requireScope('upload'), async (req, res) => {
   try {
-    const { operation, media_ids, data } = req.body;
+    const { operation, file_ids, data } = req.body;
     
-    if (!operation || !media_ids || !Array.isArray(media_ids)) {
+    if (!operation || !file_ids || !Array.isArray(file_ids)) {
       return res.status(400).json({
         success: false,
         error: 'Invalid batch operation request'
@@ -297,38 +295,47 @@ router.post('/batch', authenticateToken, requireScope('upload'), async (req, res
       const results = [];
       const errors = [];
 
-      for (const mediaId of media_ids) {
+      for (const fileId of file_ids) {
         try {
-          const media = await databaseService.getMediaFile(mediaId);
+          const file = await databaseService.getMediaFile(fileId);
           
-          if (!media || media.user_id !== req.userId) {
-            errors.push({ id: mediaId, error: 'Not found or access denied' });
+          if (!file || file.user_id !== req.userId) {
+            errors.push({ id: fileId, error: 'Not found or access denied' });
             continue;
           }
 
           switch (operation) {
             case 'delete':
-              await databaseService.deleteMediaFile(mediaId, false);
-              results.push({ id: mediaId, success: true });
+              await databaseService.deleteMediaFile(fileId, false);
+              results.push({ id: fileId, success: true });
               break;
             
             case 'update':
               if (data) {
-                const allowedUpdates = ['is_public', 'collection_id'];
+                const allowedUpdates = ['is_public', 'collection_id', 'tags'];
                 const updates = {};
                 for (const field of allowedUpdates) {
                   if (field in data) updates[field] = data[field];
                 }
-                await databaseService.updateMediaFile(mediaId, updates);
-                results.push({ id: mediaId, success: true });
+                await databaseService.updateMediaFile(fileId, updates);
+                results.push({ id: fileId, success: true });
+              }
+              break;
+              
+            case 'move':
+              if (data && data.collection_id) {
+                await databaseService.updateMediaFile(fileId, { 
+                  collection_id: data.collection_id 
+                });
+                results.push({ id: fileId, success: true });
               }
               break;
             
             default:
-              errors.push({ id: mediaId, error: 'Unknown operation' });
+              errors.push({ id: fileId, error: 'Unknown operation' });
           }
         } catch (error) {
-          errors.push({ id: mediaId, error: error.message });
+          errors.push({ id: fileId, error: error.message });
         }
       }
 
@@ -345,7 +352,7 @@ router.post('/batch', authenticateToken, requireScope('upload'), async (req, res
     }
   } catch (error) {
     logError(error, {
-      context: 'media.batch',
+      context: 'files.batch',
       operation: req.body.operation
     });
     
@@ -356,11 +363,12 @@ router.post('/batch', authenticateToken, requireScope('upload'), async (req, res
   }
 });
 
-// Search media
+// Search files
 router.get('/search', authenticateToken, requireScope('read'), async (req, res) => {
   try {
     const {
       q,
+      category,
       type,
       limit = 50,
       offset = 0
@@ -379,6 +387,7 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
         search: q
       };
 
+      if (category) filters.category = category;
       if (type) filters.mime_type = type;
 
       const pagination = {
@@ -392,10 +401,14 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
       res.json({
         success: true,
         query: q,
-        results: results.map(file => ({
-          ...file,
-          public_url: storageService.getPublicUrl(file.storage_key)
-        })),
+        results: results.map(file => {
+          const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
+          return {
+            ...file,
+            category: typeInfo.category,
+            public_url: storageService.getPublicUrl(file.storage_key)
+          };
+        }),
         pagination: {
           total: totalCount,
           limit: pagination.limit,
@@ -418,7 +431,7 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
     }
   } catch (error) {
     logError(error, {
-      context: 'media.search',
+      context: 'files.search',
       query: req.query.q
     });
     
@@ -429,15 +442,35 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
   }
 });
 
-// Get media statistics
+// Get file statistics
 router.get('/stats', authenticateToken, requireScope('read'), async (req, res) => {
   try {
     if (databaseService.isAvailable()) {
       const stats = await databaseService.getMediaStatistics(req.userId);
       
+      // Group by category
+      const byCategory = {};
+      if (stats.by_type) {
+        for (const [mime, count] of Object.entries(stats.by_type)) {
+          // Determine category from mime type
+          let category = 'other';
+          if (mime.startsWith('image/')) category = 'image';
+          else if (mime.startsWith('video/')) category = 'video';
+          else if (mime.startsWith('audio/')) category = 'audio';
+          else if (mime.startsWith('text/')) category = 'text';
+          else if (mime.includes('document')) category = 'document';
+          else if (mime.includes('zip') || mime.includes('compress')) category = 'archive';
+          
+          byCategory[category] = (byCategory[category] || 0) + count;
+        }
+      }
+      
       res.json({
         success: true,
-        stats
+        stats: {
+          ...stats,
+          by_category: byCategory
+        }
       });
     } else {
       res.json({
@@ -446,19 +479,45 @@ router.get('/stats', authenticateToken, requireScope('read'), async (req, res) =
           total_files: 0,
           total_size: 0,
           by_type: {},
+          by_category: {},
           recent_uploads: []
         }
       });
     }
   } catch (error) {
     logError(error, {
-      context: 'media.stats',
+      context: 'files.stats',
       userId: req.userId
     });
     
     res.status(500).json({
       success: false,
       error: 'Failed to get statistics'
+    });
+  }
+});
+
+// Get file categories
+router.get('/categories', authenticateToken, requireScope('read'), async (req, res) => {
+  try {
+    const formats = fileService.getSupportedFormats();
+    
+    res.json({
+      success: true,
+      categories: Object.keys(formats).map(category => ({
+        name: category,
+        formats: formats[category].length,
+        examples: formats[category].slice(0, 5).map(f => f.extension)
+      }))
+    });
+  } catch (error) {
+    logError(error, {
+      context: 'files.categories'
+    });
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get categories'
     });
   }
 });
