@@ -1,0 +1,49 @@
+{
+  "name": "@dailey/media-api-sdk",
+  "version": "1.0.0",
+  "description": "JavaScript SDK for Dailey Media API",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "dailey",
+    "media",
+    "api",
+    "sdk",
+    "file-upload",
+    "storage"
+  ],
+  "author": "Dailey Software",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jonndailey/dailey-media-api.git",
+    "directory": "sdk/javascript"
+  },
+  "homepage": "https://docs.dailey.dev/sdk/javascript",
+  "bugs": {
+    "url": "https://github.com/jonndailey/dailey-media-api/issues"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-node-resolve": "^15.2.0",
+    "@rollup/plugin-typescript": "^11.1.0",
+    "@types/jest": "^29.5.0",
+    "jest": "^29.7.0",
+    "rollup": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

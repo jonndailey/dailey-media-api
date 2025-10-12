@@ -17,7 +17,11 @@ import {
   FileType,
   Ruler,
   Tag,
-  RefreshCw
+  RefreshCw,
+  Image,
+  Video,
+  Music,
+  FileText
 } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
@@ -140,10 +144,10 @@ export default function MediaTab() {
   }
 
   const getFileTypeIcon = (mimeType) => {
-    if (mimeType.startsWith('image/')) return '🖼️'
-    if (mimeType.startsWith('video/')) return '🎥'
-    if (mimeType.startsWith('audio/')) return '🎵'
-    return '📄'
+    if (mimeType.startsWith('image/')) return <Image className="w-4 h-4" />
+    if (mimeType.startsWith('video/')) return <Video className="w-4 h-4" />
+    if (mimeType.startsWith('audio/')) return <Music className="w-4 h-4" />
+    return <FileText className="w-4 h-4" />
   }
 
   if (loading && mediaFiles.length === 0) {

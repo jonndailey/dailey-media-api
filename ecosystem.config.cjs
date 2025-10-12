@@ -1,22 +1,38 @@
 module.exports = {
   apps: [
     {
-      name: 'dmapi-backend',
+      name: 'dailey-media-api',
       script: 'src/index.js',
-      cwd: '/home/jonny/apps/dailey-media-api',
+      instances: 1,
+      exec_mode: 'fork',
       env: {
         NODE_ENV: 'development',
-        PORT: 5173
+        PORT: 4000,
+        HOST: '0.0.0.0'
+      },
+      env_staging: {
+        NODE_ENV: 'staging',
+        PORT: 4000,
+        HOST: '0.0.0.0'
+      },
+      env_production: {
+        NODE_ENV: 'production',
+        PORT: 4000,
+        HOST: '0.0.0.0',
+        instances: 'max',
+        exec_mode: 'cluster'
       },
       watch: ['src'],
-      ignore_watch: ['node_modules', 'uploads', 'logs'],
+      ignore_watch: ['node_modules', 'storage', 'logs', '.git'],
       restart_delay: 1000,
       max_restarts: 10,
       min_uptime: '10s',
-      log_file: 'logs/dmapi-backend.log',
-      error_file: 'logs/dmapi-backend-error.log',
-      out_file: 'logs/dmapi-backend-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z'
+      log_file: 'logs/dailey-media-api.log',
+      error_file: 'logs/dailey-media-api-error.log',
+      out_file: 'logs/dailey-media-api-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      time: true
     },
     {
       name: 'dmapi-frontend',
@@ -36,7 +52,7 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z'
     },
     {
-      name: 'dailey-core',
+      name: 'dailey-core-backend',
       script: 'npm',
       args: 'run dev',
       cwd: '/home/jonny/apps/dailey-core/backend',
@@ -47,9 +63,27 @@ module.exports = {
       restart_delay: 2000,
       max_restarts: 10,
       min_uptime: '15s',
-      log_file: 'logs/dailey-core.log',
-      error_file: 'logs/dailey-core-error.log',
-      out_file: 'logs/dailey-core-out.log',
+      log_file: 'logs/dailey-core-backend.log',
+      error_file: 'logs/dailey-core-backend-error.log',
+      out_file: 'logs/dailey-core-backend-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z'
+    },
+    {
+      name: 'dailey-core-frontend',
+      script: 'npm',
+      args: 'start',
+      cwd: '/home/jonny/apps/dailey-core/frontend',
+      env: {
+        NODE_ENV: 'development',
+        PORT: 3005
+      },
+      watch: false, // React handles its own file watching
+      restart_delay: 2000,
+      max_restarts: 10,
+      min_uptime: '15s',
+      log_file: 'logs/dailey-core-frontend.log',
+      error_file: 'logs/dailey-core-frontend-error.log',
+      out_file: 'logs/dailey-core-frontend-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z'
     }
   ],

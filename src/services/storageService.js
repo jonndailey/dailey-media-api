@@ -51,40 +51,48 @@ class StorageService {
   /**
    * Upload a file buffer to storage
    */
-  async uploadFile(buffer, key, contentType, metadata = {}) {
+  async uploadFile(buffer, key, contentType, metadata = {}, options = {}) {
     if (this.storageType === 'local') {
-      return this.uploadFileLocal(buffer, key, contentType, metadata);
+      return this.uploadFileLocal(buffer, key, contentType, metadata, options);
     } else {
-      return this.uploadFileS3(buffer, key, contentType, metadata);
+      return this.uploadFileS3(buffer, key, contentType, metadata, options);
     }
   }
 
   /**
    * Upload file to S3
    */
-  async uploadFileS3(buffer, key, contentType, metadata = {}) {
+  async uploadFileS3(buffer, key, contentType, metadata = {}, options = {}) {
     try {
+      const access = options.access || metadata.access || 'private';
+      metadata.access = access;
+
+      const metadataPayload = this.buildMetadataPayload(contentType, buffer.length, metadata);
+      const s3Metadata = this.convertToS3Metadata(metadataPayload);
+
       const command = new PutObjectCommand({
         Bucket: this.bucketName,
         Key: key,
         Body: buffer,
         ContentType: contentType,
-        CacheControl: 'public, max-age=31536000',
-        Metadata: {
-          ...metadata,
-          uploadedAt: new Date().toISOString(),
-          service: 'dailey-media-api'
-        }
+        CacheControl: access === 'public' ? 'public, max-age=31536000' : 'private, max-age=0, no-transform, s-maxage=0',
+        Metadata: s3Metadata
       });
 
       const result = await this.s3Client.send(command);
 
+      await this.uploadMetadataSidecarS3(key, metadataPayload);
+
       logInfo('File uploaded to S3', { key, contentType, size: buffer.length });
+
+      const accessDetails = await this.getAccessDetails(key, { access });
 
       return {
         success: true,
         key,
-        url: this.getPublicUrl(key),
+        url: accessDetails.publicUrl,
+        signedUrl: accessDetails.signedUrl,
+        access: accessDetails.access,
         etag: result.ETag,
         storageType: 's3'
       };
@@ -97,7 +105,7 @@ class StorageService {
   /**
    * Upload file to local storage
    */
-  async uploadFileLocal(buffer, key, contentType, metadata = {}) {
+  async uploadFileLocal(buffer, key, contentType, metadata = {}, options = {}) {
     try {
       // Create local storage directory structure
       const storageDir = path.join(process.cwd(), 'storage');
@@ -112,19 +120,22 @@ class StorageService {
 
       // Store metadata alongside file
       const metadataPath = filePath + '.meta.json';
-      fs.writeFileSync(metadataPath, JSON.stringify({
-        contentType,
-        size: buffer.length,
-        uploadedAt: new Date().toISOString(),
-        ...metadata
-      }, null, 2));
+      const access = options.access || metadata.access || 'private';
+      metadata.access = access;
+
+      const metadataPayload = this.buildMetadataPayload(contentType, buffer.length, metadata);
+      fs.writeFileSync(metadataPath, JSON.stringify(metadataPayload, null, 2));
 
       logInfo('File uploaded to local storage', { key, contentType, size: buffer.length });
+
+      const accessDetails = await this.getAccessDetails(key, { access });
 
       return {
         success: true,
         key,
-        url: `/storage/${key}`,
+        url: accessDetails.publicUrl || `/storage/${key}`,
+        signedUrl: accessDetails.signedUrl,
+        access: accessDetails.access,
         storageType: 'local'
       };
     } catch (error) {
@@ -282,8 +293,7 @@ class StorageService {
    */
   async getSignedUrl(key, expiresIn = 3600) {
     if (this.storageType === 'local') {
-      // For local storage, return the direct URL
-      return `/storage/${key}`;
+      return this.buildLocalServeUrl(key);
     }
 
     try {
@@ -318,6 +328,39 @@ class StorageService {
   }
 
   /**
+   * Retrieve public/signed access details for a storage key.
+   */
+  async getAccessDetails(key, options = {}) {
+    const access = await this.resolveAccessLevel(key, options.access);
+    let publicUrl = null;
+    let signedUrl = null;
+
+    if (this.storageType === 'local') {
+      if (access === 'public') {
+        publicUrl = `/storage/${key}`;
+      } else {
+        signedUrl = this.buildLocalServeUrl(key);
+      }
+    } else {
+      if (access === 'public') {
+        publicUrl = this.getPublicUrl(key);
+      } else {
+        try {
+          signedUrl = await this.getSignedUrl(key, options.expiresIn || 3600);
+        } catch (error) {
+          logError(error, { context: 'StorageService.getAccessDetails.signedUrl', key });
+        }
+      }
+    }
+
+    return {
+      access,
+      publicUrl,
+      signedUrl
+    };
+  }
+
+  /**
    * Get public URL for a storage key
    */
   getPublicUrl(key) {
@@ -325,6 +368,40 @@ class StorageService {
       return `/storage/${key}`;
     }
     return `${this.cdnUrl}/${key}`;
+  }
+
+  async resolveAccessLevel(key, providedAccess) {
+    if (providedAccess) {
+      return providedAccess;
+    }
+
+    try {
+      const metadata = await this.getFileMetadata(key);
+      if (metadata?.access) {
+        return metadata.access;
+      }
+    } catch (error) {
+      logError(error, { context: 'StorageService.resolveAccessLevel', key });
+    }
+
+    return 'private';
+  }
+
+  buildLocalServeUrl(key) {
+    if (!key.startsWith('files/')) {
+      return `/storage/${key}`;
+    }
+
+    const segments = key.split('/');
+    if (segments.length < 4) {
+      return `/storage/${key}`;
+    }
+
+    const userId = encodeURIComponent(segments[1]);
+    const bucketId = encodeURIComponent(segments[2]);
+    const filePath = segments.slice(3).map(part => encodeURIComponent(part)).join('/');
+
+    return `/api/serve/files/${userId}/${bucketId}/${filePath}`;
   }
 
   /**
@@ -365,6 +442,95 @@ class StorageService {
     return contentTypes[ext] || 'application/octet-stream';
   }
 
+  buildMetadataPayload(contentType, size, metadata = {}) {
+    const payload = {
+      contentType,
+      size,
+      uploadedAt: new Date().toISOString(),
+      service: 'dailey-media-api'
+    };
+
+    for (const [key, value] of Object.entries(metadata || {})) {
+      if (value !== undefined && value !== null) {
+        payload[key] = value;
+      }
+    }
+
+    return payload;
+  }
+
+  convertToS3Metadata(metadataPayload) {
+    if (!metadataPayload) {
+      return { service: 'dailey-media-api' };
+    }
+
+    const sanitized = {};
+
+    for (const [key, value] of Object.entries(metadataPayload)) {
+      if (value === undefined || value === null) continue;
+      const normalizedKey = key.toLowerCase();
+      const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
+
+      // S3 metadata values cannot exceed 2KB; truncate if necessary
+      sanitized[normalizedKey] = stringValue.length > 2000
+        ? stringValue.slice(0, 2000)
+        : stringValue;
+    }
+
+    if (!sanitized.service) {
+      sanitized.service = 'dailey-media-api';
+    }
+
+    return sanitized;
+  }
+
+  async uploadMetadataSidecarS3(key, metadataPayload) {
+    try {
+      const command = new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: `${key}.meta.json`,
+        Body: JSON.stringify(metadataPayload, null, 2),
+        ContentType: 'application/json',
+        CacheControl: 'no-store'
+      });
+
+      await this.s3Client.send(command);
+    } catch (error) {
+      logError(error, { context: 'StorageService.uploadMetadataSidecarS3', key });
+      // Metadata is helpful but non-critical; proceed without throwing
+    }
+  }
+
+  async getFileMetadata(key) {
+    try {
+      if (this.storageType === 'local') {
+        const metadataPath = path.join(process.cwd(), 'storage', `${key}.meta.json`);
+        if (!fs.existsSync(metadataPath)) {
+          return null;
+        }
+
+        const metadataContent = fs.readFileSync(metadataPath, 'utf8');
+        return JSON.parse(metadataContent);
+      }
+
+      const command = new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: `${key}.meta.json`
+      });
+
+      const response = await this.s3Client.send(command);
+      const buffer = await this.streamToBuffer(response.Body);
+      return JSON.parse(buffer.toString('utf8'));
+    } catch (error) {
+      if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+
+      logError(error, { context: 'StorageService.getFileMetadata', key });
+      return null;
+    }
+  }
+
   /**
    * Helper: Convert stream to buffer
    */
@@ -374,6 +540,200 @@ class StorageService {
       chunks.push(chunk);
     }
     return Buffer.concat(chunks);
+  }
+
+  async listBucketFolder(userId, bucketId, folderPath = '') {
+    if (this.storageType === 's3') {
+      return this.listBucketFolderS3(userId, bucketId, folderPath);
+    }
+    return this.listBucketFolderLocal(userId, bucketId, folderPath);
+  }
+
+  async listBucketFolderLocal(userId, bucketId, folderPath = '') {
+    const basePath = path.join(process.cwd(), 'storage', 'files', userId, bucketId);
+    const targetPath = folderPath
+      ? path.join(basePath, folderPath)
+      : basePath;
+
+    await fs.promises.access(targetPath);
+
+    const entries = await fs.promises.readdir(targetPath, { withFileTypes: true });
+    const items = [];
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+
+      const entryPath = path.join(targetPath, entry.name);
+      const stats = await fs.promises.stat(entryPath);
+
+      if (entry.isDirectory()) {
+        let folderMeta = {};
+        try {
+          const metaContent = await fs.promises.readFile(path.join(entryPath, '.folder.meta.json'), 'utf8');
+          folderMeta = JSON.parse(metaContent);
+        } catch {
+          folderMeta = {
+            name: entry.name,
+            created_at: stats.birthtime,
+            is_folder: true
+          };
+        }
+
+        const folderContents = await fs.promises.readdir(entryPath);
+        const fileCount = folderContents.filter(f => !f.startsWith('.')).length;
+
+        items.push({
+          ...folderMeta,
+          name: entry.name,
+          is_folder: true,
+          file_count: fileCount,
+          created_at: stats.birthtime
+        });
+
+        continue;
+      }
+
+      if (entry.name.endsWith('.meta.json')) continue;
+
+      const relativePath = folderPath
+        ? `${folderPath}/${entry.name}`
+        : entry.name;
+
+      const storageKey = `files/${userId}/${bucketId}/${relativePath}`;
+      const metadata = await this.getFileMetadata(storageKey) || {};
+      const accessDetails = await this.getAccessDetails(storageKey, { access: metadata.access });
+
+      const encodedPath = encodeURIComponent(relativePath);
+      const publicUrl = accessDetails.publicUrl || `/api/serve/files/${userId}/${bucketId}/${encodedPath}`;
+      const displayName = metadata.originalFilename || entry.name;
+
+      items.push({
+        id: entry.name,
+        name: displayName,
+        original_filename: displayName,
+        file_size: stats.size,
+        mime_type: metadata.mimeType || metadata.contentType || 'application/octet-stream',
+        uploaded_at: stats.mtime,
+        storage_key: storageKey,
+        public_url: publicUrl,
+        signed_url: accessDetails.signedUrl,
+        access: accessDetails.access,
+        bucket_id: bucketId,
+        folder_path: folderPath,
+        is_folder: false,
+        metadata
+      });
+    }
+
+    items.sort((a, b) => {
+      if (a.is_folder && !b.is_folder) return -1;
+      if (!a.is_folder && b.is_folder) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return items;
+  }
+
+  async listBucketFolderS3(userId, bucketId, folderPath = '') {
+    const normalizedPath = folderPath
+      ? folderPath.replace(/^\//, '').replace(/\/$/, '')
+      : '';
+
+    const prefix = normalizedPath
+      ? `files/${userId}/${bucketId}/${normalizedPath}/`
+      : `files/${userId}/${bucketId}/`;
+
+    const items = [];
+    const seenFolders = new Set();
+    let foundResults = false;
+    let continuationToken;
+
+    do {
+      const command = new ListObjectsV2Command({
+        Bucket: this.bucketName,
+        Prefix: prefix,
+        Delimiter: '/',
+        ContinuationToken: continuationToken
+      });
+
+      const response = await this.s3Client.send(command);
+
+      for (const prefixEntry of response.CommonPrefixes || []) {
+        const fullPrefix = prefixEntry.Prefix;
+        const folderName = fullPrefix.slice(prefix.length, -1);
+
+        if (!folderName || seenFolders.has(folderName)) {
+          continue;
+        }
+
+        seenFolders.add(folderName);
+        foundResults = true;
+
+        items.push({
+          name: folderName,
+          is_folder: true,
+          file_count: null,
+          created_at: null
+        });
+      }
+
+      for (const object of response.Contents || []) {
+        if (object.Key === prefix) {
+          continue;
+        }
+
+        foundResults = true;
+
+        const relativeKey = object.Key.slice(prefix.length);
+        if (!relativeKey || relativeKey.includes('/')) {
+          continue;
+        }
+
+        if (relativeKey.startsWith('.') || relativeKey.endsWith('.meta.json')) {
+          continue;
+        }
+
+        const storageKey = object.Key;
+        const metadata = await this.getFileMetadata(storageKey) || {};
+        const filename = path.basename(relativeKey);
+        const displayName = metadata.originalFilename || filename;
+
+        const accessDetails = await this.getAccessDetails(storageKey, { access: metadata.access });
+
+        items.push({
+          id: filename,
+          name: displayName,
+          original_filename: displayName,
+          file_size: object.Size,
+          mime_type: metadata.mimeType || metadata.contentType || 'application/octet-stream',
+          uploaded_at: metadata.uploadedAt || object.LastModified,
+          storage_key: storageKey,
+          public_url: accessDetails.publicUrl,
+          signed_url: accessDetails.signedUrl,
+          access: accessDetails.access,
+          bucket_id: bucketId,
+          folder_path: normalizedPath,
+          is_folder: false,
+          metadata
+        });
+      }
+
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    if (normalizedPath && !foundResults) {
+      const error = new Error('Folder not found');
+      error.code = 'ENOENT';
+      throw error;
+    }
+
+    items.sort((a, b) => {
+      if (a.is_folder && !b.is_folder) return -1;
+      if (!a.is_folder && b.is_folder) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return items;
   }
 
   /**

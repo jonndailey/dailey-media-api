@@ -3,7 +3,37 @@ import config from '../config/index.js';
 
 const router = express.Router();
 
-// Basic health check
+/**
+ * @swagger
+ * /health:
+ *   get:
+ *     tags: [Health]
+ *     summary: Basic health check
+ *     description: Returns the basic health status of the API
+ *     responses:
+ *       200:
+ *         description: Service is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: healthy
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                 uptime:
+ *                   type: number
+ *                   description: Server uptime in seconds
+ *                 version:
+ *                   type: string
+ *                   example: 1.0.0
+ *                 environment:
+ *                   type: string
+ *                   example: production
+ */
 router.get('/', (req, res) => {
   res.json({
     status: 'healthy',

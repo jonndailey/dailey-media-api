@@ -7,6 +7,8 @@ import thumbnailService from '../services/thumbnailService.js';
 import analyticsService from '../services/analyticsService.js';
 import { logInfo, logError } from '../middleware/logger.js';
 import { authenticateToken, requireScope } from '../middleware/dailey-auth.js';
+import { normalizeRelativePath } from '../utils/pathUtils.js';
+import bucketService from '../services/bucketService.js';
 
 const router = express.Router();
 
@@ -29,6 +31,8 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
     // Use authenticated user's info if not provided in body
     const user_id = req.body.user_id || req.userId;
     const app_id = req.body.app_id || req.appId;
+    const bucket_id = req.body.bucket_id || 'default';
+    const folder_path = normalizeRelativePath(req.body.folder_path || '');
     
     if (!req.file) {
       return res.status(400).json({
@@ -37,6 +41,15 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
       });
     }
     
+    let bucketInfo = null;
+    try {
+      bucketInfo = await bucketService.getBucket(user_id, bucket_id);
+    } catch (bucketError) {
+      logError(bucketError, { context: 'upload.resolveBucket', userId: user_id, bucketId: bucket_id });
+    }
+
+    const bucketAccess = bucketInfo?.is_public ? 'public' : 'private';
+
     const uploadId = nanoid();
     
     logInfo('Processing single file upload', {
@@ -44,7 +57,9 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
       filename: req.file.originalname,
       size: req.file.size,
       userId: user_id,
-      appId: app_id
+      appId: app_id,
+      bucketId: bucket_id,
+      folderPath: folder_path
     });
     
     // Process and store the file
@@ -55,6 +70,10 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
       app_id,
       {
         uploadId,
+        bucketId: bucket_id,
+        folderPath: folder_path,
+        bucketAccess,
+        isPublic: bucketAccess === 'public',
         userAgent: req.get('User-Agent'),
         ip: req.ip,
         mimeType: req.file.mimetype
@@ -70,6 +89,7 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
           original_filename: req.file.originalname,
           user_id,
           application_id: app_id,
+          bucket_id,
           file_size: req.file.size,
           mime_type: req.file.mimetype,
           file_extension: result.original.extension,
@@ -77,8 +97,12 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
           width: result.metadata?.width,
           height: result.metadata?.height,
           processing_status: 'completed',
+          is_public: bucketAccess === 'public',
+          folder_path: folder_path,
           metadata: {
             uploadId,
+            bucketId: bucket_id,
+            folderPath: folder_path,
             userAgent: req.get('User-Agent'),
             ip: req.ip,
             ...result.metadata
@@ -116,7 +140,8 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
         size: req.file.size,
         category: result.metadata?.category || 'other',
         fileName: req.file.originalname,
-        mimeType: req.file.mimetype
+        mimeType: req.file.mimetype,
+        isPublic: bucketAccess === 'public'
       }, userContext);
     } catch (analyticsError) {
       logError(analyticsError, { context: 'upload.analytics', uploadId });

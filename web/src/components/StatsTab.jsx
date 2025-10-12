@@ -16,12 +16,15 @@ import {
   ArrowDown,
   Activity
 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function StatsTab() {
   const [stats, setStats] = useState(null)
   const [timeRange, setTimeRange] = useState('7d')
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState(new Date())
+  const [error, setError] = useState(null)
+  const { makeAuthenticatedRequest } = useAuth()
 
   const timeRanges = [
     { value: '24h', label: 'Last 24 Hours' },
@@ -38,78 +41,27 @@ export default function StatsTab() {
   const fetchStats = async () => {
     setLoading(true)
     try {
-      // Mock data for now - replace with actual API call
-      const mockStats = {
-        overview: {
-          totalFiles: 1247,
-          totalSize: '15.3 GB',
-          totalAccesses: 8923,
-          uniqueUsers: 342,
-          avgResponseTime: '127ms',
-          uptime: '99.9%'
-        },
-        trends: {
-          filesUploaded: { current: 89, previous: 73, change: 21.9 },
-          fileAccesses: { current: 2341, previous: 1987, change: 17.8 },
-          bandwidth: { current: '2.1 GB', previous: '1.8 GB', change: 16.7 },
-          apiCalls: { current: 15672, previous: 13201, change: 18.7 }
-        },
-        fileTypes: [
-          { category: 'Images', count: 523, size: '8.2 GB', percentage: 53.6 },
-          { category: 'Documents', count: 298, size: '3.1 GB', percentage: 20.2 },
-          { category: 'Videos', count: 156, size: '2.8 GB', percentage: 18.3 },
-          { category: 'Archives', count: 134, size: '890 MB', percentage: 5.8 },
-          { category: 'Audio', count: 89, size: '234 MB', percentage: 1.5 },
-          { category: 'Code', count: 47, size: '12 MB', percentage: 0.6 }
-        ],
-        topFiles: [
-          { filename: 'company-logo.png', accesses: 234, bandwidth: '45 MB', category: 'Images' },
-          { filename: 'annual-report-2024.pdf', accesses: 198, bandwidth: '89 MB', category: 'Documents' },
-          { filename: 'product-demo.mp4', accesses: 156, bandwidth: '312 MB', category: 'Videos' },
-          { filename: 'api-documentation.pdf', accesses: 134, bandwidth: '23 MB', category: 'Documents' },
-          { filename: 'user-avatars.zip', accesses: 89, bandwidth: '156 MB', category: 'Archives' }
-        ],
-        accessPatterns: {
-          hourly: Array.from({ length: 24 }, (_, i) => ({
-            hour: i,
-            accesses: Math.floor(Math.random() * 100) + 20
-          })),
-          devices: [
-            { type: 'Desktop', percentage: 45.2, icon: Monitor },
-            { type: 'Mobile', percentage: 32.8, icon: Smartphone },
-            { type: 'API', percentage: 22.0, icon: Globe }
-          ],
-          regions: [
-            { region: 'North America', percentage: 52.3, accesses: 4672 },
-            { region: 'Europe', percentage: 28.9, accesses: 2581 },
-            { region: 'Asia Pacific', percentage: 14.2, accesses: 1267 },
-            { region: 'Other', percentage: 4.6, accesses: 403 }
-          ]
-        },
-        performance: {
-          responseTime: Array.from({ length: 30 }, (_, i) => ({
-            date: new Date(Date.now() - (29 - i) * 24 * 60 * 60 * 1000).toLocaleDateString(),
-            avgTime: Math.floor(Math.random() * 50) + 100,
-            p95Time: Math.floor(Math.random() * 100) + 200
-          })),
-          errorRate: 0.12,
-          cacheHitRate: 94.7
-        }
+      setError(null)
+      const response = await makeAuthenticatedRequest(`/api/analytics?timeRange=${encodeURIComponent(timeRange)}`)
+      if (!response.ok) {
+        throw new Error('Analytics API returned an error')
       }
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      setStats(mockStats)
-      setLastUpdated(new Date())
+      const data = await response.json()
+      setStats(data.analytics)
+      setLastUpdated(data.generatedAt ? new Date(data.generatedAt) : new Date())
     } catch (error) {
       console.error('Failed to fetch stats:', error)
+      setStats(null)
+      setError(error.message || 'Failed to fetch analytics data')
     } finally {
       setLoading(false)
     }
   }
 
   const formatChange = (change) => {
+    if (typeof change !== 'number' || Number.isNaN(change)) {
+      return <span className="text-xs text-slate-500">—</span>
+    }
     const isPositive = change > 0
     const color = isPositive ? 'text-green-600' : 'text-red-600'
     const icon = isPositive ? ArrowUp : ArrowDown
@@ -139,7 +91,7 @@ export default function StatsTab() {
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
           <Activity className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-          <p className="text-slate-600">Failed to load analytics data</p>
+          <p className="text-slate-600">{error || 'Failed to load analytics data'}</p>
           <button 
             onClick={fetchStats}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -150,6 +102,19 @@ export default function StatsTab() {
       </div>
     )
   }
+
+  const deviceIconMap = {
+    Desktop: Monitor,
+    Mobile: Smartphone,
+    API: Globe
+  }
+
+  const deviceStats = (stats.accessPatterns?.devices || []).map(device => ({
+    ...device,
+    icon: deviceIconMap[device.type] || Globe
+  }))
+
+  const regionStats = stats.accessPatterns?.regions || []
 
   return (
     <div className="space-y-6">
@@ -324,21 +289,30 @@ export default function StatsTab() {
           </h3>
           
           <div className="space-y-3">
-            {stats.topFiles.map((file, index) => (
-              <div key={file.filename} className="flex items-center space-x-3 p-3 bg-slate-50 rounded-lg">
+            {stats.topFiles.length === 0 && (
+              <p className="text-sm text-slate-500">No file access data recorded yet.</p>
+            )}
+            {stats.topFiles.map((file, index) => {
+              const name = file.filename || file.fileId || `File ${index + 1}`
+              const category = file.category || 'Unknown'
+              const uniqueUsers = file.uniqueUsers ?? 0
+              const bandwidth = file.bandwidth || '—'
+              return (
+              <div key={`${file.fileId || file.filename || index}`} className="flex items-center space-x-3 p-3 bg-slate-50 rounded-lg">
                 <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
                   <span className="text-sm font-bold text-blue-600">#{index + 1}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-900 truncate">{file.filename}</p>
-                  <p className="text-xs text-slate-500">{file.category}</p>
+                  <p className="text-sm font-medium text-slate-900 truncate">{name}</p>
+                  <p className="text-xs text-slate-500">{category}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-medium text-slate-900">{file.accesses} views</p>
-                  <p className="text-xs text-slate-500">{file.bandwidth}</p>
+                  <p className="text-sm font-medium text-slate-900">{file.accesses ?? 0} accesses</p>
+                  <p className="text-xs text-slate-500">{uniqueUsers} unique users</p>
+                  <p className="text-xs text-slate-500">{bandwidth}</p>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </div>
       </div>
@@ -353,7 +327,7 @@ export default function StatsTab() {
           </h3>
           
           <div className="space-y-4">
-            {stats.accessPatterns.devices.map((device) => {
+            {deviceStats.map((device) => {
               const Icon = device.icon
               return (
                 <div key={device.type} className="flex items-center justify-between">
@@ -380,12 +354,15 @@ export default function StatsTab() {
           </h3>
           
           <div className="space-y-3">
-            {stats.accessPatterns.regions.map((region) => (
+            {regionStats.length === 0 && (
+              <p className="text-sm text-slate-500">Regional breakdown not yet available.</p>
+            )}
+            {regionStats.map((region) => (
               <div key={region.region} className="flex items-center justify-between">
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-medium text-slate-900">{region.region}</span>
-                    <span className="text-sm text-slate-600">{region.accesses.toLocaleString()}</span>
+                    <span className="text-sm text-slate-600">{(region.accesses ?? 0).toLocaleString()}</span>
                   </div>
                   <div className="w-full bg-slate-200 rounded-full h-2">
                     <div 

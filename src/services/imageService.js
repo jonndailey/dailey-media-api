@@ -188,6 +188,7 @@ class ImageService {
     const { default: sharp } = await import('sharp');
     const exifrModule = await import('exifr');
     const parseExif = exifrModule.default?.parse || exifrModule.parse;
+    const accessLevel = metadata.access === 'public' || metadata.bucketAccess === 'public' ? 'public' : 'private';
     
     try {
       // Get format information
@@ -208,8 +209,10 @@ class ImageService {
           appId,
           originalName: filename,
           formatInfo: JSON.stringify(formatInfo),
-          ...metadata
-        }
+          ...metadata,
+          access: accessLevel
+        },
+        { access: accessLevel }
       );
 
       let processedMetadata = {
@@ -288,8 +291,10 @@ class ImageService {
                 originalName: filename,
                 variant: key,
                 width,
-                ...metadata
-              }
+                ...metadata,
+                access: accessLevel
+              },
+              { access: accessLevel }
             );
             
             return {
@@ -352,8 +357,10 @@ class ImageService {
                       variant: key,
                       width,
                       generatedBy: 'imagemagick',
-                      ...metadata
-                    }
+                      ...metadata,
+                      access: accessLevel
+                    },
+                    { access: accessLevel }
                   );
                   
                   // Clean up temp file

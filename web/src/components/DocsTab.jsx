@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { 
   Book, 
   Code, 
+  Code2,
   Terminal, 
   FileText, 
   Database, 
@@ -11,7 +12,16 @@ import {
   Shield,
   Package,
   Copy,
-  CheckCircle
+  CheckCircle,
+  Camera,
+  Video,
+  Music,
+  Target,
+  Ban,
+  Rocket,
+  Gem,
+  Coffee,
+  Layers
 } from 'lucide-react'
 
 export default function DocsTab() {
@@ -80,8 +90,8 @@ export default function DocsTab() {
 
 function QuickStartSection({ copyToClipboard, copiedText }) {
   const baseUrl = window.location.hostname === 'localhost' 
-    ? 'http://localhost:4000' 
-    : `http://${window.location.hostname}:4000`
+    ? 'http://localhost:5173' 
+    : `http://${window.location.hostname}:5173`
 
   return (
     <div className="space-y-6">
@@ -90,37 +100,50 @@ function QuickStartSection({ copyToClipboard, copiedText }) {
         <p className="text-slate-600">Get up and running with the Dailey Media API in under 5 minutes.</p>
       </div>
 
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 className="font-semibold text-blue-900 mb-2">🚀 Base URL</h3>
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <h3 className="font-semibold text-slate-900 mb-2">🚀 Base URL</h3>
         <div className="flex items-center space-x-2">
-          <code className="flex-1 block bg-white px-3 py-2 rounded border border-blue-200">
+          <code className="flex-1 block bg-white px-3 py-2 rounded border border-slate-200">
             {baseUrl}/api
           </code>
           <button
             onClick={() => copyToClipboard(`${baseUrl}/api`, 'base-url')}
-            className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
           >
-            {copiedText === 'base-url' ? <CheckCircle className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-blue-600" />}
+            {copiedText === 'base-url' ? <CheckCircle className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-slate-600" />}
           </button>
         </div>
       </div>
 
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-slate-900">1. Get Your API Key</h3>
-        <p className="text-slate-600">First, create an API key from the API Keys tab. You'll get a key that looks like:</p>
-        <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
-          <code>dmapi_prod_zR0XufVsrw2EIawIwnTV9HravIRQcKtI</code>
-        </pre>
+        <h3 className="text-lg font-semibold text-slate-900">1. Authenticate with DAILEY CORE</h3>
+        <p className="text-slate-600">
+          Sign in with your Dailey account to obtain a short-lived JWT access token. Tokens are issued by DAILEY CORE and grant access to the Media API.
+        </p>
+        <div className="relative">
+          <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
+            <code>{`curl -X POST http://localhost:3002/auth/login \\
+  -H "Content-Type: application/json" \\
+  -d '{ "email": "admin@dailey.cloud", "password": "demo123" }'`}</code>
+          </pre>
+          <button
+            onClick={() => copyToClipboard(`curl -X POST http://localhost:3002/auth/login \\\n  -H "Content-Type: application/json" \\\n  -d '{ \"email\": \"admin@dailey.cloud\", \"password\": \"demo123\" }'`, 'core-login')}
+            className="absolute top-2 right-2 p-2 hover:bg-slate-800 rounded transition-colors"
+          >
+            {copiedText === 'core-login' ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4 text-slate-400" />}
+          </button>
+        </div>
+        <p className="text-xs text-slate-500">
+          The response includes an <code>accessToken</code>. Store it securely and refresh it when it expires.
+        </p>
 
         <h3 className="text-lg font-semibold text-slate-900 mt-6">2. Make Your First Upload</h3>
         <div className="relative">
           <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
-            <code>{`curl -X POST ${baseUrl}/api/upload \\
-  -H "X-API-Key: YOUR_API_KEY" \\
-  -F "file=@/path/to/any/file.pdf"`}</code>
+            <code>{`ACCESS_TOKEN=\"paste-token-here\"\n\ncurl -X POST ${baseUrl}/api/upload \\\n  -H \"Authorization: Bearer $ACCESS_TOKEN\" \\\n  -F \"file=@/path/to/any/file.pdf\"`}</code>
           </pre>
           <button
-            onClick={() => copyToClipboard(`curl -X POST ${baseUrl}/api/upload \\\n  -H "X-API-Key: YOUR_API_KEY" \\\n  -F "file=@/path/to/any/file.pdf"`, 'curl-upload')}
+            onClick={() => copyToClipboard(`ACCESS_TOKEN=\"paste-token-here\"\n\ncurl -X POST ${baseUrl}/api/upload \\\n  -H \"Authorization: Bearer $ACCESS_TOKEN\" \\\n  -F \"file=@/path/to/any/file.pdf\"`, 'curl-upload')}
             className="absolute top-2 right-2 p-2 hover:bg-slate-800 rounded transition-colors"
           >
             {copiedText === 'curl-upload' ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4 text-slate-400" />}
@@ -152,78 +175,95 @@ function QuickStartSection({ copyToClipboard, copiedText }) {
 }
 
 function AuthenticationSection({ copyToClipboard, copiedText }) {
+  const apiBaseUrl = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5173' 
+    : `http://${window.location.hostname}:5173`
+
+  const fetchExample = `const token = '<paste access token>'; // Issued by DAILEY CORE
+
+fetch('${apiBaseUrl}/api/buckets', {
+  headers: {
+    Authorization: 'Bearer ' + token
+  }
+})
+  .then(res => res.json())
+  .then(data => console.log(data))`
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900 mb-2">Authentication</h2>
-        <p className="text-slate-600">The Dailey Media API uses API keys for authentication. Include your key in the request headers.</p>
+        <p className="text-slate-600">
+          The Dailey Media API trusts access tokens issued by DAILEY CORE. Authenticate against Core, then include the resulting JWT in the <code>Authorization</code> header of every request.
+        </p>
       </div>
 
       <div className="space-y-4">
         <h3 className="text-lg font-semibold text-slate-900">Header Authentication</h3>
-        <p className="text-slate-600">Include your API key in the X-API-Key header:</p>
+        <p className="text-slate-600">Send your token using the standard Bearer scheme:</p>
         <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
-          <code>{`X-API-Key: dmapi_prod_zR0XufVsrw2EIawIwnTV9HravIRQcKtI`}</code>
+          <code>{`Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`}</code>
         </pre>
 
         <h3 className="text-lg font-semibold text-slate-900 mt-6">Example Request</h3>
         <div className="relative">
           <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
-            <code>{`fetch('http://localhost:4000/api/files', {
-  headers: {
-    'X-API-Key': 'dmapi_prod_zR0XufVsrw2EIawIwnTV9HravIRQcKtI'
-  }
-})
-.then(res => res.json())
-.then(data => console.log(data))`}</code>
+            <code>{fetchExample}</code>
           </pre>
           <button
-            onClick={() => copyToClipboard(`fetch('http://localhost:4000/api/files', {\n  headers: {\n    'X-API-Key': 'dmapi_prod_zR0XufVsrw2EIawIwnTV9HravIRQcKtI'\n  }\n})\n.then(res => res.json())\n.then(data => console.log(data))`, 'auth-example')}
+            onClick={() => copyToClipboard(fetchExample, 'auth-example')}
             className="absolute top-2 right-2 p-2 hover:bg-slate-800 rounded transition-colors"
           >
             {copiedText === 'auth-example' ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4 text-slate-400" />}
           </button>
         </div>
 
-        <h3 className="text-lg font-semibold text-slate-900 mt-6">API Key Scopes</h3>
+        <h3 className="text-lg font-semibold text-slate-900 mt-6">Roles & Scopes</h3>
         <div className="bg-slate-50 rounded-lg p-4">
           <ul className="space-y-2">
             <li className="flex items-start">
               <span className="text-green-500 mr-2">•</span>
               <div>
-                <strong className="text-slate-900">upload</strong>
-                <p className="text-sm text-slate-600">Allows uploading new files of any type</p>
+                <strong className="text-slate-900">upload scope</strong>
+                <p className="text-sm text-slate-600">
+                  Requires one of: <code>user</code>, <code>api.write</code>, <code>core.admin</code>, <code>tenant.admin</code>.
+                  Grants permission to create files and folders.
+                </p>
               </div>
             </li>
             <li className="flex items-start">
               <span className="text-green-500 mr-2">•</span>
               <div>
-                <strong className="text-slate-900">files</strong>
-                <p className="text-sm text-slate-600">Read access to all file types</p>
+                <strong className="text-slate-900">read scope</strong>
+                <p className="text-sm text-slate-600">
+                  Requires one of: <code>user</code>, <code>api.read</code>, <code>api.write</code>, <code>core.admin</code>, <code>tenant.admin</code>.
+                  Grants read-only access to buckets, folders, and files.
+                </p>
               </div>
             </li>
             <li className="flex items-start">
               <span className="text-green-500 mr-2">•</span>
               <div>
-                <strong className="text-slate-900">media</strong>
-                <p className="text-sm text-slate-600">Legacy - same as files scope</p>
+                <strong className="text-slate-900">analytics scope</strong>
+                <p className="text-sm text-slate-600">
+                  Requires <code>core.admin</code>, <code>tenant.admin</code>, or <code>analytics.viewer</code>.
+                  Enables access to upload and access analytics.
+                </p>
               </div>
             </li>
             <li className="flex items-start">
               <span className="text-green-500 mr-2">•</span>
               <div>
-                <strong className="text-slate-900">transform</strong>
-                <p className="text-sm text-slate-600">Image transformation operations</p>
-              </div>
-            </li>
-            <li className="flex items-start">
-              <span className="text-green-500 mr-2">•</span>
-              <div>
-                <strong className="text-slate-900">delete</strong>
-                <p className="text-sm text-slate-600">Delete files</p>
+                <strong className="text-slate-900">admin features</strong>
+                <p className="text-sm text-slate-600">
+                  Require elevated roles such as <code>core.admin</code>, <code>tenant.admin</code>, or <code>user.admin</code> depending on the operation.
+                </p>
               </div>
             </li>
           </ul>
+          <p className="mt-4 text-xs text-slate-500">
+            Legacy API keys are still accepted via the <code>X-API-Key</code> header for maintenance integrations, but new integrations should migrate to DAILEY CORE authentication.
+          </p>
         </div>
       </div>
     </div>
@@ -232,8 +272,25 @@ function AuthenticationSection({ copyToClipboard, copiedText }) {
 
 function UploadSection({ copyToClipboard, copiedText }) {
   const baseUrl = window.location.hostname === 'localhost' 
-    ? 'http://localhost:4000' 
-    : `http://${window.location.hostname}:4000`
+    ? 'http://localhost:5173' 
+    : `http://${window.location.hostname}:5173`
+  const jsUploadSnippet = `const token = '<paste access token>'
+const formData = new FormData()
+formData.append('file', fileInput.files[0])
+
+fetch('${baseUrl}/api/upload', {
+  method: 'POST',
+  headers: {
+    Authorization: 'Bearer ' + token
+  },
+  body: formData
+})
+.then(res => res.json())
+.then(data => {
+  console.log('Upload successful!')
+  console.log('File URL:', data.file.url)
+  console.log('File Type:', data.file.category)
+})`
 
   return (
     <div className="space-y-6">
@@ -243,16 +300,43 @@ function UploadSection({ copyToClipboard, copiedText }) {
       </div>
 
       <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-        <h3 className="font-semibold text-green-900 mb-2">✅ Supported File Types</h3>
+        <h3 className="font-semibold text-green-900 mb-2">
+          <CheckCircle className="w-4 h-4 inline mr-2" />
+          Supported File Types
+        </h3>
         <div className="grid grid-cols-2 gap-2 mt-2 text-sm text-green-800">
-          <div>📸 Images (JPEG, PNG, GIF, WebP, SVG, RAW)</div>
-          <div>📄 Documents (PDF, Word, Excel, PowerPoint)</div>
-          <div>🎥 Videos (MP4, AVI, MOV, WebM)</div>
-          <div>🎵 Audio (MP3, WAV, FLAC, AAC)</div>
-          <div>📦 Archives (ZIP, RAR, TAR, 7Z)</div>
-          <div>💻 Code (JS, Python, Go, any text file)</div>
-          <div>🗂️ Data (JSON, XML, CSV, SQL)</div>
-          <div>✨ ANY other file type up to 100MB!</div>
+          <div>
+            <Camera className="w-4 h-4 inline mr-2" />
+            Images (JPEG, PNG, GIF, WebP, SVG, RAW)
+          </div>
+          <div>
+            <FileText className="w-4 h-4 inline mr-2" />
+            Documents (PDF, Word, Excel, PowerPoint)
+          </div>
+          <div>
+            <Video className="w-4 h-4 inline mr-2" />
+            Videos (MP4, AVI, MOV, WebM)
+          </div>
+          <div>
+            <Music className="w-4 h-4 inline mr-2" />
+            Audio (MP3, WAV, FLAC, AAC)
+          </div>
+          <div>
+            <Package className="w-4 h-4 inline mr-2" />
+            Archives (ZIP, RAR, TAR, 7Z)
+          </div>
+          <div>
+            <Code className="w-4 h-4 inline mr-2" />
+            Code (JS, Python, Go, any text file)
+          </div>
+          <div>
+            <Database className="w-4 h-4 inline mr-2" />
+            Data (JSON, XML, CSV, SQL)
+          </div>
+          <div>
+            <Zap className="w-4 h-4 inline mr-2" />
+            ANY other file type up to 100MB!
+          </div>
         </div>
       </div>
 
@@ -264,11 +348,11 @@ function UploadSection({ copyToClipboard, copiedText }) {
 Content-Type: multipart/form-data
 
 curl -X POST ${baseUrl}/api/upload \\
-  -H "X-API-Key: YOUR_API_KEY" \\
+  -H "Authorization: Bearer $ACCESS_TOKEN" \\
   -F "file=@document.pdf"`}</code>
           </pre>
           <button
-            onClick={() => copyToClipboard(`curl -X POST ${baseUrl}/api/upload \\\n  -H "X-API-Key: YOUR_API_KEY" \\\n  -F "file=@document.pdf"`, 'single-upload')}
+            onClick={() => copyToClipboard(`curl -X POST ${baseUrl}/api/upload \\\n  -H "Authorization: Bearer $ACCESS_TOKEN" \\\n  -F "file=@document.pdf"`, 'single-upload')}
             className="absolute top-2 right-2 p-2 hover:bg-slate-800 rounded transition-colors"
           >
             {copiedText === 'single-upload' ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4 text-slate-400" />}
@@ -278,7 +362,7 @@ curl -X POST ${baseUrl}/api/upload \\
         <h3 className="text-lg font-semibold text-slate-900 mt-6">Multiple File Upload</h3>
         <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
           <code>{`curl -X POST ${baseUrl}/api/upload \\
-  -H "X-API-Key: YOUR_API_KEY" \\
+  -H "Authorization: Bearer $ACCESS_TOKEN" \\
   -F "files[]=@photo1.jpg" \\
   -F "files[]=@photo2.jpg" \\
   -F "files[]=@document.pdf" \\
@@ -288,25 +372,10 @@ curl -X POST ${baseUrl}/api/upload \\
         <h3 className="text-lg font-semibold text-slate-900 mt-6">JavaScript Example</h3>
         <div className="relative">
           <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
-            <code>{`const formData = new FormData()
-formData.append('file', fileInput.files[0])
-
-fetch('${baseUrl}/api/upload', {
-  method: 'POST',
-  headers: {
-    'X-API-Key': 'YOUR_API_KEY'
-  },
-  body: formData
-})
-.then(res => res.json())
-.then(data => {
-  console.log('Upload successful!')
-  console.log('File URL:', data.file.url)
-  console.log('File Type:', data.file.category)
-})`}</code>
+            <code>{jsUploadSnippet}</code>
           </pre>
           <button
-            onClick={() => copyToClipboard(`const formData = new FormData()\nformData.append('file', fileInput.files[0])\n\nfetch('${baseUrl}/api/upload', {\n  method: 'POST',\n  headers: {\n    'X-API-Key': 'YOUR_API_KEY'\n  },\n  body: formData\n})\n.then(res => res.json())\n.then(data => {\n  console.log('Upload successful!')\n  console.log('File URL:', data.file.url)\n  console.log('File Type:', data.file.category)\n})`, 'js-upload')}
+            onClick={() => copyToClipboard(jsUploadSnippet, 'js-upload')}
             className="absolute top-2 right-2 p-2 hover:bg-slate-800 rounded transition-colors"
           >
             {copiedText === 'js-upload' ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4 text-slate-400" />}
@@ -318,8 +387,9 @@ fetch('${baseUrl}/api/upload', {
           <code>{`import requests
 
 # Upload any file type
+access_token = '<paste access token>'
 files = {'file': open('presentation.pptx', 'rb')}
-headers = {'X-API-Key': 'YOUR_API_KEY'}
+headers = {'Authorization': f'Bearer {access_token}'}
 
 response = requests.post(
     '${baseUrl}/api/upload',
@@ -339,8 +409,8 @@ print(f"Metadata: {data['file']['metadata']}")`}</code>
 
 function RetrieveSection({ copyToClipboard, copiedText }) {
   const baseUrl = window.location.hostname === 'localhost' 
-    ? 'http://localhost:4000' 
-    : `http://${window.location.hostname}:4000`
+    ? 'http://localhost:5173' 
+    : `http://${window.location.hostname}:5173`
 
   return (
     <div className="space-y-6">
@@ -354,7 +424,7 @@ function RetrieveSection({ copyToClipboard, copiedText }) {
         <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
           <code>{`GET /api/files/:id
 
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   ${baseUrl}/api/files/file_abc123`}</code>
         </pre>
 
@@ -363,11 +433,11 @@ curl -H "X-API-Key: YOUR_API_KEY" \\
           <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
             <code>{`GET /api/files?limit=20&offset=0&category=documents
 
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   "${baseUrl}/api/files?limit=20&category=documents"`}</code>
           </pre>
           <button
-            onClick={() => copyToClipboard(`curl -H "X-API-Key: YOUR_API_KEY" \\\n  "${baseUrl}/api/files?limit=20&category=documents"`, 'list-files')}
+            onClick={() => copyToClipboard(`curl -H "Authorization: Bearer $ACCESS_TOKEN" \\\n  "${baseUrl}/api/files?limit=20&category=documents"`, 'list-files')}
             className="absolute top-2 right-2 p-2 hover:bg-slate-800 rounded transition-colors"
           >
             {copiedText === 'list-files' ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4 text-slate-400" />}
@@ -440,8 +510,8 @@ curl -H "X-API-Key: YOUR_API_KEY" \\
 
 function TransformSection({ copyToClipboard, copiedText }) {
   const baseUrl = window.location.hostname === 'localhost' 
-    ? 'http://localhost:4000' 
-    : `http://${window.location.hostname}:4000`
+    ? 'http://localhost:5173' 
+    : `http://${window.location.hostname}:5173`
 
   return (
     <div className="space-y-6">
@@ -456,11 +526,11 @@ function TransformSection({ copyToClipboard, copiedText }) {
           <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto">
             <code>{`GET /api/files/:id/transform?width=800&height=600&fit=cover
 
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   "${baseUrl}/api/files/file_abc123/transform?width=800"`}</code>
           </pre>
           <button
-            onClick={() => copyToClipboard(`curl -H "X-API-Key: YOUR_API_KEY" \\\n  "${baseUrl}/api/files/file_abc123/transform?width=800"`, 'transform-resize')}
+            onClick={() => copyToClipboard(`curl -H "Authorization: Bearer $ACCESS_TOKEN" \\\n  "${baseUrl}/api/files/file_abc123/transform?width=800"`, 'transform-resize')}
             className="absolute top-2 right-2 p-2 hover:bg-slate-800 rounded transition-colors"
           >
             {copiedText === 'transform-resize' ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4 text-slate-400" />}
@@ -519,13 +589,15 @@ curl -H "X-API-Key: YOUR_API_KEY" \\
 function ExamplesSection({ copyToClipboard, copiedText }) {
   const [selectedLanguage, setSelectedLanguage] = useState('javascript')
   const baseUrl = window.location.hostname === 'localhost' 
-    ? 'http://localhost:4000' 
-    : `http://${window.location.hostname}:4000`
+    ? 'http://localhost:5173' 
+    : `http://${window.location.hostname}:5173`
 
   const examples = {
     javascript: {
       label: 'JavaScript',
-      code: `// Upload any file type
+      code: `const token = '<paste access token>';
+
+// Upload any file type
 async function uploadFile(file) {
   const formData = new FormData()
   formData.append('file', file)
@@ -533,7 +605,7 @@ async function uploadFile(file) {
   const response = await fetch('${baseUrl}/api/upload', {
     method: 'POST',
     headers: {
-      'X-API-Key': 'YOUR_API_KEY'
+      Authorization: 'Bearer ' + token
     },
     body: formData
   })
@@ -555,7 +627,7 @@ async function listFiles(page = 1, limit = 20, category = null) {
     \`${baseUrl}/api/files?\${params}\`,
     {
       headers: {
-        'X-API-Key': 'YOUR_API_KEY'
+        Authorization: 'Bearer ' + token
       }
     }
   )
@@ -607,10 +679,10 @@ from typing import Optional, Dict, List
 import mimetypes
 
 class DaileyMediaAPI:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self, access_token: str):
+        self.access_token = access_token
         self.base_url = "${baseUrl}/api"
-        self.headers = {"X-API-Key": api_key}
+        self.headers = {"Authorization": f"Bearer {self.access_token}"}
     
     def upload_file(self, filepath: str) -> Dict:
         """Upload any file type to Dailey Media API"""
@@ -676,7 +748,7 @@ class DaileyMediaAPI:
         return f"{self.base_url}/files/{file_id}/transform?{params}"
 
 # Usage examples
-api = DaileyMediaAPI("YOUR_API_KEY")
+api = DaileyMediaAPI("<paste access token>")
 
 # Upload different file types
 api.upload_file("report.pdf")           # Document
@@ -702,11 +774,11 @@ for img in images:
       code: `<?php
 
 class DaileyMediaAPI {
-    private $apiKey;
+    private $accessToken;
     private $baseUrl = '${baseUrl}/api';
     
-    public function __construct($apiKey) {
-        $this->apiKey = $apiKey;
+    public function __construct($accessToken) {
+        $this->accessToken = $accessToken;
     }
     
     public function uploadFile($filepath) {
@@ -726,7 +798,7 @@ class DaileyMediaAPI {
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $data,
             CURLOPT_HTTPHEADER => [
-                'X-API-Key: ' . $this->apiKey
+                'Authorization: Bearer ' . $this->accessToken
             ]
         ]);
         
@@ -760,7 +832,7 @@ class DaileyMediaAPI {
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => [
-                'X-API-Key: ' . $this->apiKey
+                'Authorization: Bearer ' . $this->accessToken
             ]
         ]);
         
@@ -795,7 +867,7 @@ class DaileyMediaAPI {
 }
 
 // Usage
-$api = new DaileyMediaAPI('YOUR_API_KEY');
+$api = new DaileyMediaAPI('<paste access token>');
 
 // Upload different types of files
 $api->handleUpload('/path/to/document.pdf');
@@ -820,52 +892,52 @@ foreach ($images['files'] as $img) {
       label: 'cURL',
       code: `# Upload any type of file
 curl -X POST ${baseUrl}/api/upload \\
-  -H "X-API-Key: YOUR_API_KEY" \\
+  -H "Authorization: Bearer $ACCESS_TOKEN" \\
   -F "file=@/path/to/document.pdf"
 
 # Upload multiple files of different types
 curl -X POST ${baseUrl}/api/upload \\
-  -H "X-API-Key: YOUR_API_KEY" \\
+  -H "Authorization: Bearer $ACCESS_TOKEN" \\
   -F "files[]=@report.pdf" \\
   -F "files[]=@photo.jpg" \\
   -F "files[]=@data.csv" \\
   -F "files[]=@video.mp4"
 
 # List all files
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   "${baseUrl}/api/files?limit=20"
 
 # List only documents
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   "${baseUrl}/api/files?category=documents"
 
 # List only images
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   "${baseUrl}/api/files?category=images"
 
 # List only videos
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   "${baseUrl}/api/files?category=videos"
 
 # Search for files by name
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   "${baseUrl}/api/files?search=report"
 
 # Get file details
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   ${baseUrl}/api/files/file_abc123
 
 # Delete a file
 curl -X DELETE \\
-  -H "X-API-Key: YOUR_API_KEY" \\
+  -H "Authorization: Bearer $ACCESS_TOKEN" \\
   ${baseUrl}/api/files/file_abc123
 
 # Transform an image (resize to 800px width)
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   "${baseUrl}/api/files/file_abc123/transform?width=800&format=webp"
 
 # Create thumbnail (200x200)
-curl -H "X-API-Key: YOUR_API_KEY" \\
+curl -H "Authorization: Bearer $ACCESS_TOKEN" \\
   "${baseUrl}/api/files/file_abc123/transform?width=200&height=200&fit=cover"`
     }
   }
@@ -964,7 +1036,10 @@ function LimitsSection() {
         </div>
 
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <h3 className="font-semibold text-yellow-900 mb-2">⚡ Performance Tips</h3>
+          <h3 className="font-semibold text-yellow-900 mb-2">
+            <Zap className="w-4 h-4 inline mr-2" />
+            Performance Tips
+          </h3>
           <ul className="space-y-1 text-sm text-yellow-800">
             <li>• Use batch uploads for multiple files</li>
             <li>• Cache transformed images on your CDN</li>
@@ -976,19 +1051,25 @@ function LimitsSection() {
         </div>
 
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h3 className="font-semibold text-blue-900 mb-2">🎯 Best Practices</h3>
+          <h3 className="font-semibold text-blue-900 mb-2">
+            <Target className="w-4 h-4 inline mr-2" />
+            Best Practices
+          </h3>
           <ul className="space-y-1 text-sm text-blue-800">
             <li>• Validate file types before uploading</li>
             <li>• Compress large files when possible</li>
             <li>• Use metadata for searchability</li>
             <li>• Implement proper error handling</li>
-            <li>• Monitor your usage via API keys dashboard</li>
+            <li>• Monitor your usage via the analytics dashboard</li>
             <li>• Use webhooks for async processing (coming soon)</li>
           </ul>
         </div>
 
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <h3 className="font-semibold text-red-900 mb-2">🚫 Prohibited Content</h3>
+          <h3 className="font-semibold text-red-900 mb-2">
+            <Ban className="w-4 h-4 inline mr-2" />
+            Prohibited Content
+          </h3>
           <p className="text-sm text-red-800">
             The following content is strictly prohibited:
           </p>
@@ -1017,7 +1098,7 @@ function SDKsSection() {
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
-              <span className="text-xl">📦</span>
+              <Package className="w-5 h-5" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">JavaScript/TypeScript</h3>
@@ -1033,7 +1114,7 @@ function SDKsSection() {
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <span className="text-xl">🐍</span>
+              <Code2 className="w-5 h-5 text-blue-600" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">Python</h3>
@@ -1049,7 +1130,7 @@ function SDKsSection() {
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-              <span className="text-xl">🐘</span>
+              <Layers className="w-5 h-5 text-purple-600" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">PHP</h3>
@@ -1065,7 +1146,7 @@ function SDKsSection() {
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <span className="text-xl">🚀</span>
+              <Rocket className="w-5 h-5 text-green-600" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">Go</h3>
@@ -1081,7 +1162,7 @@ function SDKsSection() {
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-              <span className="text-xl">💎</span>
+              <Gem className="w-5 h-5 text-red-600" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">Ruby</h3>
@@ -1097,7 +1178,7 @@ function SDKsSection() {
         <div className="bg-white border border-slate-200 rounded-lg p-4">
           <div className="flex items-center space-x-3 mb-3">
             <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-              <span className="text-xl">☕</span>
+              <Coffee className="w-5 h-5 text-orange-600" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">Java</h3>

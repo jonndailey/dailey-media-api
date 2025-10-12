@@ -11,10 +11,12 @@ class ApiKeyService {
 
   loadDefaultKeys() {
     // Create a default API key for development
+    const defaultKeyValue = process.env.DEFAULT_API_KEY || 'dmapi_dev_zR0XufVsrw2EIawIwnTV9HravIRQcKtI';
+
     const defaultKey = {
       id: 'default',
       name: 'Default Development Key',
-      key: 'dmapi_dev_' + nanoid(32),
+      key: defaultKeyValue,
       prefix: 'dmapi_dev',
       userId: 'system',
       appId: 'dailey-media-api',

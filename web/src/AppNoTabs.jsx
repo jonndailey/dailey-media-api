@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Upload, Folder, BookOpen, FolderOpen, KeyRound } from 'lucide-react'
 
 function AppNoTabs() {
   const [activeTab, setActiveTab] = useState('upload')
@@ -74,7 +75,8 @@ function AppNoTabs() {
                 activeTab === 'upload' ? 'border-b-2 border-blue-500 text-blue-600' : ''
               }`}
             >
-              📤 Upload Files
+              <Upload className="w-4 h-4 inline mr-2" />
+              Upload Files
             </button>
             <button 
               onClick={() => setActiveTab('files')}
@@ -82,7 +84,8 @@ function AppNoTabs() {
                 activeTab === 'files' ? 'border-b-2 border-blue-500 text-blue-600' : ''
               }`}
             >
-              📁 Browse Files
+              <Folder className="w-4 h-4 inline mr-2" />
+              Browse Files
             </button>
             <button 
               onClick={() => setActiveTab('api')}
@@ -90,7 +93,8 @@ function AppNoTabs() {
                 activeTab === 'api' ? 'border-b-2 border-blue-500 text-blue-600' : ''
               }`}
             >
-              🔑 API Keys
+              <KeyRound className="w-4 h-4 inline mr-2" />
+              API Keys
             </button>
             <button 
               onClick={() => setActiveTab('docs')}
@@ -98,7 +102,8 @@ function AppNoTabs() {
                 activeTab === 'docs' ? 'border-b-2 border-blue-500 text-blue-600' : ''
               }`}
             >
-              📚 Documentation
+              <BookOpen className="w-4 h-4 inline mr-2" />
+              Documentation
             </button>
           </div>
 
@@ -134,7 +139,7 @@ function UploadSection() {
         onDrop={(e) => { e.preventDefault(); setIsDragging(false) }}
       >
         <div className="space-y-4">
-          <div className="text-4xl">📁</div>
+          <FolderOpen className="w-16 h-16 mx-auto text-slate-400" />
           <div>
             <p className="text-lg font-medium text-slate-900">Drop files here or click to browse</p>
             <p className="text-sm text-slate-500 mt-1">Supports ALL file types - Max 100MB per file</p>
@@ -158,7 +163,9 @@ function FilesSection() {
       </div>
       
       <div className="text-center py-12 bg-slate-50 rounded-lg">
-        <div className="text-4xl mb-4">📂</div>
+        <div className="mb-4 flex justify-center">
+          <Folder className="w-10 h-10 text-slate-400" />
+        </div>
         <p className="text-slate-600">No files uploaded yet</p>
         <p className="text-sm text-slate-500 mt-2">Upload some files to see them here</p>
       </div>

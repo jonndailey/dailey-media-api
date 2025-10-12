@@ -16,22 +16,122 @@ class AnalyticsService {
     }
   }
 
+  ensureArray(value) {
+    if (!value) return []
+    if (Array.isArray(value)) return Array.from(new Set(value))
+    if (value instanceof Set) return Array.from(value)
+    if (typeof value === 'object') {
+      return Array.from(new Set(Object.values(value).filter(Boolean)))
+    }
+    return [value]
+  }
+
+  addUnique(array, value) {
+    if (!value) return
+    if (!Array.isArray(array)) {
+      throw new Error('addUnique expects an array reference')
+    }
+    if (!array.includes(value)) {
+      array.push(value)
+    }
+  }
+
+  ensureHourlyArray(values = []) {
+    const hourly = Array.isArray(values) ? [...values] : []
+    while (hourly.length < 24) {
+      hourly.push(0)
+    }
+    return hourly.slice(0, 24).map(value => Number(value || 0))
+  }
+
+  normalizeStatsStructure(stats = {}) {
+    const defaults = this.getDefaultStats()
+
+    const normalized = {
+      overview: {
+        ...defaults.overview,
+        ...(stats.overview || {})
+      },
+      fileAccesses: {},
+      userAccesses: {},
+      dailyStats: {},
+      fileTypes: { ...defaults.fileTypes },
+      performance: {
+        responseTimes: Array.isArray(stats.performance?.responseTimes) ? stats.performance.responseTimes : [],
+        errorCount: Number(stats.performance?.errorCount || 0),
+        requestCount: Number(stats.performance?.requestCount || 0)
+      }
+    }
+
+    Object.entries(stats.fileTypes || {}).forEach(([category, data]) => {
+      normalized.fileTypes[category] = {
+        count: Number(data?.count || 0),
+        size: Number(data?.size || 0)
+      }
+    })
+
+    Object.entries(stats.fileAccesses || {}).forEach(([fileId, data = {}]) => {
+      normalized.fileAccesses[fileId] = {
+        count: Number(data.count || 0),
+        lastAccessed: data.lastAccessed || null,
+        users: this.ensureArray(data.users),
+        emails: this.ensureArray(data.emails)
+      }
+    })
+
+    Object.entries(stats.userAccesses || {}).forEach(([userId, data = {}]) => {
+      normalized.userAccesses[userId] = {
+        totalAccesses: Number(data.totalAccesses || 0),
+        filesAccessed: this.ensureArray(data.filesAccessed),
+        lastSeen: data.lastSeen || null,
+        userAgent: data.userAgent || '',
+        ip: data.ip || '',
+        email: data.email || null,
+        roles: this.ensureArray(data.roles)
+      }
+    })
+
+    Object.entries(stats.dailyStats || {}).forEach(([date, data = {}]) => {
+      normalized.dailyStats[date] = {
+        uploads: Number(data.uploads || 0),
+        accesses: Number(data.accesses || 0),
+        bandwidth: Number(data.bandwidth || 0),
+        uniqueUsers: this.ensureArray(data.uniqueUsers),
+        uniqueEmails: this.ensureArray(data.uniqueEmails),
+        hourlyAccesses: this.ensureHourlyArray(data.hourlyAccesses)
+      }
+    })
+
+    normalized.performance.responseTimes = normalized.performance.responseTimes
+      .filter(entry => entry && typeof entry === 'object' && typeof entry.time === 'number' && entry.timestamp)
+      .map(entry => ({
+        time: Number(entry.time),
+        timestamp: entry.timestamp
+      }))
+
+    normalized.overview.totalFiles = Number(normalized.overview.totalFiles || 0)
+    normalized.overview.totalSize = Number(normalized.overview.totalSize || 0)
+    normalized.overview.totalAccesses = Number(normalized.overview.totalAccesses || 0)
+    normalized.overview.uniqueUsers = Number(normalized.overview.uniqueUsers || 0)
+
+    return normalized
+  }
+
   async getStats() {
     try {
       const data = await fs.readFile(this.statsFile, 'utf8')
-      return JSON.parse(data)
+      return this.normalizeStatsStructure(JSON.parse(data))
     } catch (error) {
       // Return default stats if file doesn't exist
       return this.getDefaultStats()
     }
   }
 
-  async updateStats(update) {
+  async updateStats(updatedStats) {
     try {
-      const currentStats = await this.getStats()
-      const updatedStats = { ...currentStats, ...update }
-      await fs.writeFile(this.statsFile, JSON.stringify(updatedStats, null, 2))
-      return updatedStats
+      const normalized = this.normalizeStatsStructure(updatedStats)
+      await fs.writeFile(this.statsFile, JSON.stringify(normalized, null, 2))
+      return normalized
     } catch (error) {
       console.error('Failed to update stats:', error)
       throw error
@@ -79,24 +179,27 @@ class AnalyticsService {
       stats.overview.lastUpdated = new Date().toISOString()
 
       // Update daily stats
-      if (!stats.dailyStats[today]) {
-        stats.dailyStats[today] = {
-          uploads: 0,
-          accesses: 0,
-          bandwidth: 0,
-          uniqueUsers: new Set(),
-          uniqueEmails: new Set()
-        }
+      const todayStats = stats.dailyStats[today] || {
+        uploads: 0,
+        accesses: 0,
+        bandwidth: 0,
+        uniqueUsers: [],
+        uniqueEmails: [],
+        hourlyAccesses: Array(24).fill(0)
       }
-      stats.dailyStats[today].uploads += 1
-      
+      todayStats.uploads += 1
+      todayStats.uniqueUsers = this.ensureArray(todayStats.uniqueUsers)
+      todayStats.uniqueEmails = this.ensureArray(todayStats.uniqueEmails)
+
       // Track user info if available
       if (userContext.userId) {
-        stats.dailyStats[today].uniqueUsers.add(userContext.userId)
+        this.addUnique(todayStats.uniqueUsers, userContext.userId)
       }
       if (userContext.email) {
-        stats.dailyStats[today].uniqueEmails.add(userContext.email)
+        this.addUnique(todayStats.uniqueEmails, userContext.email)
       }
+
+      stats.dailyStats[today] = todayStats
 
       // Update file type stats
       const category = fileData.category || 'other'
@@ -129,69 +232,75 @@ class AnalyticsService {
       const ip = userContext.ip || ''
 
       // Track file access
-      if (!stats.fileAccesses[fileId]) {
-        stats.fileAccesses[fileId] = {
-          count: 0,
-          lastAccessed: null,
-          users: new Set(),
-          emails: new Set()
-        }
+      const fileAccessEntry = stats.fileAccesses[fileId] || {
+        count: 0,
+        lastAccessed: null,
+        users: [],
+        emails: []
       }
-      stats.fileAccesses[fileId].count += 1
-      stats.fileAccesses[fileId].lastAccessed = new Date().toISOString()
-      stats.fileAccesses[fileId].users.add(userId)
+      fileAccessEntry.count += 1
+      fileAccessEntry.lastAccessed = new Date().toISOString()
+      fileAccessEntry.users = this.ensureArray(fileAccessEntry.users)
+      this.addUnique(fileAccessEntry.users, userId)
       if (userEmail) {
-        stats.fileAccesses[fileId].emails.add(userEmail)
+        fileAccessEntry.emails = this.ensureArray(fileAccessEntry.emails)
+        this.addUnique(fileAccessEntry.emails, userEmail)
       }
+      stats.fileAccesses[fileId] = fileAccessEntry
 
       // Track user access
-      if (!stats.userAccesses[userId]) {
-        stats.userAccesses[userId] = {
-          totalAccesses: 0,
-          filesAccessed: new Set(),
-          lastSeen: null,
-          userAgent,
-          ip,
-          email: userEmail,
-          roles: userContext.roles || []
-        }
+      const userAccessEntry = stats.userAccesses[userId] || {
+        totalAccesses: 0,
+        filesAccessed: [],
+        lastSeen: null,
+        userAgent,
+        ip,
+        email: userEmail || null,
+        roles: []
       }
-      stats.userAccesses[userId].totalAccesses += 1
-      stats.userAccesses[userId].filesAccessed.add(fileId)
-      stats.userAccesses[userId].lastSeen = new Date().toISOString()
+      userAccessEntry.totalAccesses += 1
+      userAccessEntry.filesAccessed = this.ensureArray(userAccessEntry.filesAccessed)
+      this.addUnique(userAccessEntry.filesAccessed, fileId)
+      userAccessEntry.lastSeen = new Date().toISOString()
       
       // Update user info if available
-      if (userEmail && !stats.userAccesses[userId].email) {
-        stats.userAccesses[userId].email = userEmail
+      if (userEmail && !userAccessEntry.email) {
+        userAccessEntry.email = userEmail
       }
       if (userContext.roles && userContext.roles.length > 0) {
-        stats.userAccesses[userId].roles = userContext.roles
+        const existingRoles = this.ensureArray(userAccessEntry.roles)
+        userAccessEntry.roles = Array.from(new Set([...existingRoles, ...userContext.roles]))
       }
+      if (userAgent) {
+        userAccessEntry.userAgent = userAgent
+      }
+      if (ip) {
+        userAccessEntry.ip = ip
+      }
+      stats.userAccesses[userId] = userAccessEntry
 
       // Update daily stats
-      if (!stats.dailyStats[today]) {
-        stats.dailyStats[today] = {
-          uploads: 0,
-          accesses: 0,
-          bandwidth: 0,
-          uniqueUsers: new Set(),
-          uniqueEmails: new Set(),
-          hourlyAccesses: Array(24).fill(0)
-        }
+      const todayStats = stats.dailyStats[today] || {
+        uploads: 0,
+        accesses: 0,
+        bandwidth: 0,
+        uniqueUsers: [],
+        uniqueEmails: [],
+        hourlyAccesses: Array(24).fill(0)
       }
-      stats.dailyStats[today].accesses += 1
-      stats.dailyStats[today].uniqueUsers.add(userId)
+      todayStats.accesses += 1
+      todayStats.uniqueUsers = this.ensureArray(todayStats.uniqueUsers)
+      todayStats.uniqueEmails = this.ensureArray(todayStats.uniqueEmails)
+      this.addUnique(todayStats.uniqueUsers, userId)
       if (userEmail) {
-        stats.dailyStats[today].uniqueEmails.add(userEmail)
+        this.addUnique(todayStats.uniqueEmails, userEmail)
       }
-      if (stats.dailyStats[today].hourlyAccesses) {
-        stats.dailyStats[today].hourlyAccesses[hour] = (stats.dailyStats[today].hourlyAccesses[hour] || 0) + 1
-      }
+      todayStats.hourlyAccesses = this.ensureHourlyArray(todayStats.hourlyAccesses)
+      todayStats.hourlyAccesses[hour] = (todayStats.hourlyAccesses[hour] || 0) + 1
+      stats.dailyStats[today] = todayStats
 
       // Update unique users count
-      const allUsers = new Set()
-      Object.keys(stats.userAccesses).forEach(user => allUsers.add(user))
-      stats.overview.uniqueUsers = allUsers.size
+      stats.overview.uniqueUsers = Object.keys(stats.userAccesses).length
 
       await this.updateStats(stats)
       return stats
@@ -206,15 +315,16 @@ class AnalyticsService {
       const today = new Date().toISOString().split('T')[0]
 
       // Update daily bandwidth
-      if (!stats.dailyStats[today]) {
-        stats.dailyStats[today] = {
-          uploads: 0,
-          accesses: 0,
-          bandwidth: 0,
-          uniqueUsers: new Set()
-        }
+      const todayStats = stats.dailyStats[today] || {
+        uploads: 0,
+        accesses: 0,
+        bandwidth: 0,
+        uniqueUsers: [],
+        uniqueEmails: [],
+        hourlyAccesses: Array(24).fill(0)
       }
-      stats.dailyStats[today].bandwidth += bytes
+      todayStats.bandwidth += bytes
+      stats.dailyStats[today] = todayStats
 
       await this.updateStats(stats)
       return stats
@@ -303,6 +413,12 @@ class AnalyticsService {
         apiCalls: this.calculateChange(secondHalfStats.accesses + secondHalfStats.uploads, firstHalfStats.accesses + firstHalfStats.uploads)
       }
 
+      trends.bandwidth = {
+        current: this.formatBytes(trends.bandwidth.current || 0),
+        previous: this.formatBytes(trends.bandwidth.previous || 0),
+        change: trends.bandwidth.change
+      }
+
       // Get top files
       const topFiles = Object.entries(stats.fileAccesses)
         .sort(([,a], [,b]) => b.count - a.count)
@@ -310,7 +426,9 @@ class AnalyticsService {
         .map(([fileId, data]) => ({
           fileId,
           accesses: data.count,
-          lastAccessed: data.lastAccessed
+          lastAccessed: data.lastAccessed,
+          uniqueUsers: this.ensureArray(data.users).length,
+          uniqueEmails: this.ensureArray(data.emails).length
         }))
 
       // Calculate performance metrics
@@ -395,22 +513,39 @@ class AnalyticsService {
   }
 
   getDeviceBreakdown(userAccesses) {
-    // Mock device breakdown based on user agents
-    return [
-      { type: 'Desktop', percentage: 45.2 },
-      { type: 'Mobile', percentage: 32.8 },
-      { type: 'API', percentage: 22.0 }
-    ]
+    const counts = {
+      Desktop: 0,
+      Mobile: 0,
+      API: 0
+    }
+
+    const entries = Object.values(userAccesses || {})
+    entries.forEach(entry => {
+      const agent = (entry?.userAgent || '').toLowerCase()
+      if (!agent || agent.includes('axios') || agent.includes('http')) {
+        counts.API += 1
+      } else if (agent.includes('mobile') || agent.includes('iphone') || agent.includes('android') || agent.includes('ipad')) {
+        counts.Mobile += 1
+      } else {
+        counts.Desktop += 1
+      }
+    })
+
+    const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
+    if (total === 0) {
+      return []
+    }
+
+    return Object.entries(counts)
+      .filter(([, value]) => value > 0)
+      .map(([type, value]) => ({
+        type,
+        percentage: Math.round((value / total) * 1000) / 10
+      }))
   }
 
   getRegionBreakdown() {
-    // Mock region breakdown
-    return [
-      { region: 'North America', percentage: 52.3, accesses: 4672 },
-      { region: 'Europe', percentage: 28.9, accesses: 2581 },
-      { region: 'Asia Pacific', percentage: 14.2, accesses: 1267 },
-      { region: 'Other', percentage: 4.6, accesses: 403 }
-    ]
+    return []
   }
 
   getResponseTimeHistory(responseTimes, startDate) {

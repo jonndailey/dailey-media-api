@@ -129,7 +129,18 @@ class ThumbnailService {
       const storageKey = `thumbnails/${media.user_id}/${media.id}/${sizeName}_${sizeConfig.width}x${sizeConfig.height}.${fileExtension}`;
 
       // Store the thumbnail
-      await storageService.storeFile(storageKey, data, `image/${format}`);
+      const accessLevel = media.is_public ? 'public' : 'private';
+      await storageService.uploadFile(
+        data,
+        storageKey,
+        `image/${format}`,
+        {
+          mediaId: media.id,
+          variantType: sizeName,
+          access: accessLevel
+        },
+        { access: accessLevel }
+      );
 
       // Save variant to database
       const variantId = await databaseService.createMediaVariant({
@@ -151,6 +162,8 @@ class ThumbnailService {
         }
       });
 
+      const accessDetails = await storageService.getAccessDetails(storageKey, { access: accessLevel });
+
       return {
         id: variantId,
         storage_key: storageKey,
@@ -159,7 +172,9 @@ class ThumbnailService {
         width: info.width,
         height: info.height,
         file_size: info.size,
-        url: storageService.getPublicUrl(storageKey)
+        url: accessDetails.publicUrl,
+        signedUrl: accessDetails.signedUrl,
+        access: accessDetails.access
       };
 
     } catch (error) {
@@ -183,9 +198,12 @@ class ThumbnailService {
       );
 
       if (thumbnail) {
+        const accessDetails = await storageService.getAccessDetails(thumbnail.storage_key);
         return {
           ...thumbnail,
-          url: storageService.getPublicUrl(thumbnail.storage_key)
+          url: accessDetails.publicUrl,
+          signedUrl: accessDetails.signedUrl,
+          access: accessDetails.access
         };
       }
 
@@ -263,9 +281,12 @@ class ThumbnailService {
       );
 
       if (existing) {
+        const accessDetails = await storageService.getAccessDetails(existing.storage_key);
         return {
           ...existing,
-          url: storageService.getPublicUrl(existing.storage_key)
+          url: accessDetails.publicUrl,
+          signedUrl: accessDetails.signedUrl,
+          access: accessDetails.access
         };
       }
 

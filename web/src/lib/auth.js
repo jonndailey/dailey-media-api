@@ -133,9 +133,13 @@ class DaileyAuth {
   async makeAuthenticatedRequest(url, options = {}) {
     const headers = {
       'Authorization': `Bearer ${this.token}`,
-      'Content-Type': 'application/json',
       ...options.headers
     };
+    
+    // Only set Content-Type for non-FormData requests
+    if (!(options.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     const response = await fetch(url, {
       ...options,
@@ -163,18 +167,22 @@ class DaileyAuth {
   // Helper method to check if DAILEY CORE is available
   async checkAuthServiceHealth() {
     try {
-      // Try to check DAILEY CORE health directly through proxy
-      const response = await fetch('/auth/health', {
+      // In development, use proxy (relative URL), in production use direct URL
+      const healthUrl = import.meta.env.DEV ? '/auth/health' : `${this.baseUrl}/health`;
+      
+      const response = await fetch(healthUrl, {
         method: 'GET',
         headers: {
           'Accept': 'application/json'
         }
       });
       
-      // If we get a response (even 404), DAILEY CORE is reachable
-      // We check for any response because /auth/health might not exist
-      // but the proxy will still work for /auth/login
-      return true; // As long as fetch doesn't throw, service is reachable
+      if (response.ok) {
+        const data = await response.json();
+        return data.status === 'healthy';
+      }
+      
+      return false;
     } catch (error) {
       console.error('DAILEY CORE service check failed:', error);
       return false;

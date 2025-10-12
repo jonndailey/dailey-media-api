@@ -46,7 +46,7 @@ INSERT INTO apps (
     'dailey-media-api',
     'dailey-media-api-client',
     '$2b$12$placeholder_hash',  -- Placeholder hash (not used for this integration)
-    '["http://localhost:5174", "http://100.105.97.19:5174", "http://localhost:4000"]',  -- Frontend URLs
+    '["http://localhost:5174", "http://100.105.97.19:5174", "http://localhost:5173"]',  -- Frontend URLs
     'active',
     'Universal file storage API for the DAILEY ecosystem',
     'http://localhost:5174',
@@ -132,7 +132,7 @@ cd /path/to/dailey-media-api/web && npm run dev
 
 ### Authentication URLs
 - **DAILEY CORE**: http://localhost:3002
-- **Backend API**: http://localhost:4000
+- **Backend API**: http://localhost:5173
 - **Frontend**: http://localhost:5174
 - **Tailscale Frontend**: http://100.105.97.19:5174
 
@@ -163,7 +163,7 @@ curl -X POST http://localhost:3002/auth/login \
 
 # Test Dailey Media API with auth
 TOKEN="your-token-here"
-curl -X GET http://localhost:4000/api/files \
+curl -X GET http://localhost:5173/api/files \
   -H "Authorization: Bearer $TOKEN"
 
 # Check app registration in database

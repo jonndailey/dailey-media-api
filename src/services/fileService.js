@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import sharp from 'sharp';
 import storageService from './storageService.js';
 import { logInfo, logError } from '../middleware/logger.js';
+import { normalizeRelativePath } from '../utils/pathUtils.js';
 
 // Comprehensive file type mapping
 const FILE_TYPES = {
@@ -219,12 +220,36 @@ class FileService {
       const fileId = nanoid();
       const timestamp = Date.now();
       const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+      const bucketId = metadata.bucketId || 'default';
+      const accessLevel = metadata.bucketAccess === 'public' ? 'public' : 'private';
+      const folderPath = normalizeRelativePath(metadata.folderPath || '');
       
-      // Generate storage key
-      const storageKey = `files/${userId}/${timestamp}_${fileId}.${fileInfo.extension}`;
+      // Generate storage key with bucket and folder support
+      const fileName = `${timestamp}_${fileId}.${fileInfo.extension}`;
+      const storageKey = folderPath 
+        ? `files/${userId}/${bucketId}/${folderPath}/${fileName}`
+        : `files/${userId}/${bucketId}/${fileName}`;
+      
+      const storageMetadata = {
+        originalFilename: filename,
+        mimeType: fileInfo.mime,
+        category: fileInfo.category,
+        bucketId,
+        folderPath,
+        userId,
+        appId,
+        hash,
+        access: accessLevel
+      };
+
+      for (const [key, value] of Object.entries(metadata)) {
+        if (value !== undefined && value !== null) {
+          storageMetadata[key] = value;
+        }
+      }
       
       // Store original file
-      await storageService.uploadFile(buffer, storageKey, fileInfo.mime);
+      await storageService.uploadFile(buffer, storageKey, fileInfo.mime, storageMetadata, { access: accessLevel });
       
       logInfo('Stored file', {
         filename,
@@ -233,22 +258,28 @@ class FileService {
         storageKey
       });
 
+      const accessDetails = await storageService.getAccessDetails(storageKey, { access: accessLevel });
+
       const result = {
         original: {
           key: storageKey,
-          url: storageService.getPublicUrl(storageKey),
+          url: accessDetails.publicUrl,
+          signedUrl: accessDetails.signedUrl,
           size: buffer.length,
           mime: fileInfo.mime,
           extension: fileInfo.extension,
-          hash
+          hash,
+          access: accessDetails.access
         },
         variants: [],
         metadata: {
           ...metadata,
+          folderPath,
           category: fileInfo.category,
           processable: fileInfo.processable,
           originalName: filename,
-          uploadedAt: new Date().toISOString()
+          uploadedAt: new Date().toISOString(),
+          access: accessDetails.access
         }
       };
 
@@ -260,7 +291,7 @@ class FileService {
           
           // Generate common variants for images
           if (imageMetadata.width > 320) {
-            const variants = await this.generateImageVariants(buffer, storageKey, userId);
+            const variants = await this.generateImageVariants(buffer, storageKey, userId, accessLevel);
             result.variants = variants;
           }
         } catch (err) {
@@ -316,7 +347,7 @@ class FileService {
   /**
    * Generate image variants
    */
-  async generateImageVariants(buffer, originalKey, userId) {
+  async generateImageVariants(buffer, originalKey, userId, accessLevel = 'private') {
     const variants = [];
     
     for (const [sizeName, sizeConfig] of Object.entries(IMAGE_SIZES)) {
@@ -338,12 +369,27 @@ class FileService {
         const variantBuffer = await processor.webp({ quality: 85 }).toBuffer();
         const variantKey = originalKey.replace(/\.[^.]+$/, `_${sizeName}.webp`);
         
-        await storageService.uploadFile(variantBuffer, variantKey, 'image/webp');
-        
+        await storageService.uploadFile(
+          variantBuffer,
+          variantKey,
+          'image/webp',
+          {
+            variantOf: originalKey,
+            variantSize: sizeName,
+            access: accessLevel,
+            userId
+          },
+          { access: accessLevel }
+        );
+
+        const variantAccess = await storageService.getAccessDetails(variantKey, { access: accessLevel });
+
         variants.push({
           size: sizeName,
           key: variantKey,
-          url: storageService.getPublicUrl(variantKey),
+          url: variantAccess.publicUrl,
+          signedUrl: variantAccess.signedUrl,
+          access: variantAccess.access,
           width: sizeConfig.width,
           height: sizeConfig.height,
           format: 'webp'
@@ -381,11 +427,14 @@ class FileService {
       
       const buffer = await storageService.getFileBuffer(storageKey);
       const stats = await storageService.getFileStats(storageKey);
+      const accessDetails = await storageService.getAccessDetails(storageKey);
       
       return {
         buffer,
         stats,
-        url: storageService.getPublicUrl(storageKey)
+        url: accessDetails.publicUrl,
+        signedUrl: accessDetails.signedUrl,
+        access: accessDetails.access
       };
     } catch (error) {
       logError(error, { context: 'fileService.getFile', storageKey });

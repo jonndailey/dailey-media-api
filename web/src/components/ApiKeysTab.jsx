@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { cn } from '../lib/utils'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function ApiKeysTab() {
   const [apiKeys, setApiKeys] = useState([])
@@ -22,6 +23,7 @@ export default function ApiKeysTab() {
   const [error, setError] = useState(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [newKeyResult, setNewKeyResult] = useState(null)
+  const { makeAuthenticatedRequest } = useAuth()
 
   useEffect(() => {
     fetchApiKeys()
@@ -30,17 +32,20 @@ export default function ApiKeysTab() {
   const fetchApiKeys = async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/keys', {
-        headers: {
-          'X-API-Key': 'dmapi_dev_zR0XufVsrw2EIawIwnTV9HravIRQcKtI' // Use default key for demo
-        }
-      })
-      
+      const response = await makeAuthenticatedRequest('/api/keys')
+
       if (response.ok) {
         const data = await response.json()
         setApiKeys(data.keys || [])
       } else {
-        setError('Failed to fetch API keys')
+        const body = await response.json().catch(() => ({}))
+        if (response.status === 401) {
+          setError(body.error || 'You need to sign in before you can manage API keys.')
+        } else if (response.status === 403) {
+          setError(body.error || 'You do not have permission to view API keys.')
+        } else {
+          setError(body.error || 'Failed to fetch API keys')
+        }
       }
     } catch (error) {
       setError('Error fetching API keys: ' + error.message)
@@ -51,11 +56,10 @@ export default function ApiKeysTab() {
 
   const createApiKey = async (keyData) => {
     try {
-      const response = await fetch('/api/keys', {
+      const response = await makeAuthenticatedRequest('/api/keys', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': 'dmapi_dev_zR0XufVsrw2EIawIwnTV9HravIRQcKtI'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(keyData)
       })
@@ -63,11 +67,11 @@ export default function ApiKeysTab() {
       if (response.ok) {
         const result = await response.json()
         setNewKeyResult(result.key)
-        fetchApiKeys() // Refresh the list
+        fetchApiKeys()
         return result
       } else {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to create API key')
+        const errorBody = await response.json().catch(() => ({}))
+        throw new Error(errorBody.error || 'Failed to create API key')
       }
     } catch (error) {
       throw error
@@ -80,18 +84,15 @@ export default function ApiKeysTab() {
     }
 
     try {
-      const response = await fetch(`/api/keys/${keyId}`, {
-        method: 'DELETE',
-        headers: {
-          'X-API-Key': 'dmapi_dev_zR0XufVsrw2EIawIwnTV9HravIRQcKtI'
-        }
+      const response = await makeAuthenticatedRequest(`/api/keys/${keyId}`, {
+        method: 'DELETE'
       })
       
       if (response.ok) {
-        fetchApiKeys() // Refresh the list
+        fetchApiKeys()
       } else {
-        const error = await response.json()
-        alert('Failed to delete API key: ' + (error.error || 'Unknown error'))
+        const errorBody = await response.json().catch(() => ({}))
+        alert('Failed to delete API key: ' + (errorBody.error || 'Unknown error'))
       }
     } catch (error) {
       alert('Error deleting API key: ' + error.message)

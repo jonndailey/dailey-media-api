@@ -41,10 +41,20 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
       const totalCount = await databaseService.countMediaFiles(filters);
 
       // Add URLs to each media file
-      const filesWithUrls = results.map(file => ({
-        ...file,
-        public_url: storageService.getPublicUrl(file.storage_key),
-        thumbnail_url: file.thumbnail_key ? storageService.getPublicUrl(file.thumbnail_key) : null
+      const filesWithUrls = await Promise.all(results.map(async file => {
+        const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
+        const thumbnailAccess = file.thumbnail_key
+          ? await storageService.getAccessDetails(file.thumbnail_key, { access: file.is_public ? 'public' : 'private' })
+          : { publicUrl: null, signedUrl: null, access: accessDetails.access };
+
+        return {
+          ...file,
+          access: accessDetails.access,
+          public_url: accessDetails.publicUrl,
+          signed_url: accessDetails.signedUrl,
+          thumbnail_url: thumbnailAccess.publicUrl,
+          thumbnail_signed_url: thumbnailAccess.signedUrl
+        };
       }));
 
       res.json({
@@ -58,17 +68,118 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
         }
       });
     } else {
-      // Return empty list if database not available
-      res.json({
-        success: true,
-        files: [],
-        pagination: {
-          total: 0,
-          limit: parseInt(limit),
-          offset: parseInt(offset),
-          has_more: false
+      // Fallback: scan filesystem when database not available
+      try {
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        
+        const userStoragePath = path.join(process.cwd(), 'storage', 'files', req.userId);
+        
+        let files = [];
+        try {
+          const entries = await fs.readdir(userStoragePath, { withFileTypes: true });
+          
+          // Get all files (not directories) and their metadata
+          const filePromises = entries
+            .filter(entry => entry.isFile() && !entry.name.endsWith('.meta.json'))
+            .map(async (entry) => {
+              try {
+                const filePath = path.join(userStoragePath, entry.name);
+                const stats = await fs.stat(filePath);
+                
+                // Try to get metadata from .meta.json file
+                let metadata = {};
+                try {
+                  const metaPath = filePath + '.meta.json';
+                  const metaContent = await fs.readFile(metaPath, 'utf8');
+                  metadata = JSON.parse(metaContent);
+                } catch {
+                  // No metadata file, use basic info
+                }
+                
+                // Extract info from filename if no metadata
+                const originalFilename = metadata.originalFilename || entry.name;
+                const mimeType = metadata.mimeType || 'application/octet-stream';
+                const bucketId = metadata.bucketId || 'default';
+                
+                const storageKey = `files/${req.userId}/${bucketId}/${entry.name}`;
+                const accessDetails = await storageService.getAccessDetails(storageKey, { access: metadata.access });
+
+                return {
+                  id: entry.name,
+                  original_filename: originalFilename,
+                  file_size: stats.size,
+                  mime_type: mimeType,
+                  uploaded_at: stats.mtime,
+                  storage_key: storageKey,
+                  access: accessDetails.access,
+                  public_url: accessDetails.publicUrl || `/api/serve/files/${req.userId}/${bucketId}/${entry.name}`,
+                  signed_url: accessDetails.signedUrl,
+                  bucket_id: bucketId,
+                  metadata: metadata
+                };
+              } catch (err) {
+                logError(err, { context: 'media.list.filesystem.file', file: entry.name });
+                return null;
+              }
+            });
+            
+          const resolvedFiles = await Promise.all(filePromises);
+          files = resolvedFiles.filter(file => file !== null);
+          
+          // Sort by upload date (newest first)
+          files.sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
+          
+          // Apply pagination
+          const startIndex = parseInt(offset);
+          const endIndex = startIndex + parseInt(limit);
+          const paginatedFiles = files.slice(startIndex, endIndex);
+          
+          logInfo('Listed files from filesystem', { 
+            count: paginatedFiles.length, 
+            total: files.length, 
+            userId: req.userId 
+          });
+          
+          res.json({
+            success: true,
+            files: paginatedFiles,
+            pagination: {
+              total: files.length,
+              limit: parseInt(limit),
+              offset: parseInt(offset),
+              has_more: endIndex < files.length
+            }
+          });
+          
+        } catch (dirError) {
+          // Directory doesn't exist or is empty
+          logInfo('No user storage directory found', { userId: req.userId, error: dirError.message });
+          res.json({
+            success: true,
+            files: [],
+            pagination: {
+              total: 0,
+              limit: parseInt(limit),
+              offset: parseInt(offset),
+              has_more: false
+            }
+          });
         }
-      });
+        
+      } catch (fsError) {
+        logError(fsError, { context: 'media.list.filesystem' });
+        res.json({
+          success: true,
+          files: [],
+          pagination: {
+            total: 0,
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            has_more: false
+          }
+        });
+      }
     }
   } catch (error) {
     logError(error, { 
@@ -108,9 +219,14 @@ router.get('/files/:id', authenticateToken, requireScope('read'), async (req, re
 
       // Get variants
       const variants = await databaseService.getMediaVariants(id);
-      const variantsWithUrls = variants.map(v => ({
-        ...v,
-        url: storageService.getPublicUrl(v.storage_key)
+      const variantsWithUrls = await Promise.all(variants.map(async v => {
+        const variantAccess = await storageService.getAccessDetails(v.storage_key, { access: media.is_public ? 'public' : 'private' });
+        return {
+          ...v,
+          access: variantAccess.access,
+          url: variantAccess.publicUrl,
+          signed_url: variantAccess.signedUrl
+        };
       }));
 
       // Track file access analytics
@@ -130,11 +246,15 @@ router.get('/files/:id', authenticateToken, requireScope('read'), async (req, re
         // Don't fail the request if analytics fails
       }
 
+      const accessDetails = await storageService.getAccessDetails(media.storage_key, { access: media.is_public ? 'public' : 'private' });
+
       res.json({
         success: true,
         media: {
           ...media,
-          public_url: storageService.getPublicUrl(media.storage_key),
+          access: accessDetails.access,
+          public_url: accessDetails.publicUrl,
+          signed_url: accessDetails.signedUrl,
           variants: variantsWithUrls
         }
       });
@@ -392,9 +512,14 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
       res.json({
         success: true,
         query: q,
-        results: results.map(file => ({
-          ...file,
-          public_url: storageService.getPublicUrl(file.storage_key)
+        results: await Promise.all(results.map(async file => {
+          const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
+          return {
+            ...file,
+            access: accessDetails.access,
+            public_url: accessDetails.publicUrl,
+            signed_url: accessDetails.signedUrl
+          };
         })),
         pagination: {
           total: totalCount,

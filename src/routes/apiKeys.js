@@ -1,16 +1,107 @@
 import express from 'express';
 import apiKeyService from '../services/apiKeyService.js';
-import { authenticateApiKey, requirePermission } from '../middleware/auth.js';
+import { authenticateApiKey } from '../middleware/auth.js';
+import { optionalAuth } from '../middleware/dailey-auth.js';
 import { logInfo, logError } from '../middleware/logger.js';
+
+const ADMIN_ROLES = ['core.admin', 'tenant.admin'];
+const WRITE_ROLES = [...ADMIN_ROLES, 'api.write'];
+const READ_ROLES = [...WRITE_ROLES, 'api.read'];
+
+async function authenticateKeyOrToken(req, res, next) {
+  try {
+    await new Promise((resolve) => optionalAuth(req, res, resolve));
+    if (req.user) {
+      req.authType = 'token';
+      return next();
+    }
+
+    authenticateApiKey(req, res, (err) => {
+      if (err) {
+        return next(err);
+      }
+      req.authType = 'api-key';
+      next();
+    });
+  } catch (error) {
+    logError(error, { context: 'apiKeys.auth' });
+    res.status(500).json({
+      success: false,
+      error: 'Authentication error'
+    });
+  }
+}
+
+function hasRequiredRole(req, roles = []) {
+  return (req.userRoles || []).some((role) => roles.includes(role));
+}
+
+function ensureReadAccess(req, res, next) {
+  if (req.authType === 'token') {
+    if (!hasRequiredRole(req, READ_ROLES)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Insufficient permissions',
+        message: 'You need API Read or Admin access to view keys'
+      });
+    }
+    return next();
+  }
+
+  if (req.apiKey) {
+    return next();
+  }
+
+  return res.status(401).json({
+    success: false,
+    error: 'Authentication required'
+  });
+}
+
+function ensureWriteAccess(req, res, next) {
+  if (req.authType === 'token') {
+    if (!hasRequiredRole(req, WRITE_ROLES)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Insufficient permissions',
+        message: 'You need API Write or Admin access to manage keys'
+      });
+    }
+    return next();
+  }
+
+  if (req.apiKey && apiKeyService.hasPermission(req.apiKey, 'write')) {
+    return next();
+  }
+
+  return res.status(403).json({
+    success: false,
+    error: 'Insufficient permissions'
+  });
+}
+
+function deriveActor(req) {
+  const userId = req.userId || req.apiKey?.userId;
+  const appId = req.appId || req.apiKey?.appId || 'dailey-media-api';
+  return { userId, appId };
+}
 
 const router = express.Router();
 
 // Get all API keys for the authenticated user
-router.get('/', authenticateApiKey, async (req, res) => {
+router.get('/', authenticateKeyOrToken, ensureReadAccess, async (req, res) => {
   try {
     const { limit, offset, include_inactive } = req.query;
-    
-    const result = await apiKeyService.listApiKeys(req.userId, {
+    const { userId } = deriveActor(req);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
+      });
+    }
+
+    const result = await apiKeyService.listApiKeys(userId, {
       limit: limit ? parseInt(limit) : 50,
       offset: offset ? parseInt(offset) : 0,
       includeInactive: include_inactive === 'true'
@@ -31,11 +122,12 @@ router.get('/', authenticateApiKey, async (req, res) => {
 });
 
 // Get specific API key details
-router.get('/:keyId', authenticateApiKey, async (req, res) => {
+router.get('/:keyId', authenticateKeyOrToken, ensureReadAccess, async (req, res) => {
   try {
     const { keyId } = req.params;
-    
-    const keyData = await apiKeyService.getApiKey(keyId, req.userId);
+    const { userId } = deriveActor(req);
+
+    const keyData = await apiKeyService.getApiKey(keyId, userId);
     
     if (!keyData) {
       return res.status(404).json({
@@ -59,7 +151,7 @@ router.get('/:keyId', authenticateApiKey, async (req, res) => {
 });
 
 // Create a new API key
-router.post('/', authenticateApiKey, requirePermission('write'), async (req, res) => {
+router.post('/', authenticateKeyOrToken, ensureWriteAccess, async (req, res) => {
   try {
     const {
       name,
@@ -69,6 +161,15 @@ router.post('/', authenticateApiKey, requirePermission('write'), async (req, res
       expiresAt,
       metadata = {}
     } = req.body;
+
+    const { userId, appId } = deriveActor(req);
+
+    if (!userId || !appId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Unable to determine owner for API key'
+      });
+    }
 
     if (!name) {
       return res.status(400).json({
@@ -103,17 +204,21 @@ router.post('/', authenticateApiKey, requirePermission('write'), async (req, res
       });
     }
 
+    const createdBy = req.authType === 'token'
+      ? (req.user?.email || req.user?.id || 'unknown-user')
+      : req.apiKey?.id;
+
     const newKey = await apiKeyService.createApiKey({
       name,
-      userId: req.userId,
-      appId: req.appId,
+      userId,
+      appId,
       permissions,
       scopes,
       rateLimit: rateLimit || { maxRequests: 100, windowMs: 15 * 60 * 1000 },
       expiresAt,
       metadata: {
         ...metadata,
-        createdBy: req.apiKey.id,
+        createdBy,
         userAgent: req.get('User-Agent'),
         ip: req.ip
       }
@@ -136,10 +241,11 @@ router.post('/', authenticateApiKey, requirePermission('write'), async (req, res
 });
 
 // Update an existing API key
-router.put('/:keyId', authenticateApiKey, requirePermission('write'), async (req, res) => {
+router.put('/:keyId', authenticateKeyOrToken, ensureWriteAccess, async (req, res) => {
   try {
     const { keyId } = req.params;
     const updates = req.body;
+    const { userId } = deriveActor(req);
 
     // Remove fields that shouldn't be updated via this endpoint
     delete updates.key;
@@ -149,7 +255,7 @@ router.put('/:keyId', authenticateApiKey, requirePermission('write'), async (req
     delete updates.createdAt;
     delete updates.usageCount;
 
-    const updatedKey = await apiKeyService.updateApiKey(keyId, req.userId, updates);
+    const updatedKey = await apiKeyService.updateApiKey(keyId, userId, updates);
 
     res.json({
       success: true,
@@ -182,11 +288,12 @@ router.put('/:keyId', authenticateApiKey, requirePermission('write'), async (req
 });
 
 // Delete an API key
-router.delete('/:keyId', authenticateApiKey, requirePermission('write'), async (req, res) => {
+router.delete('/:keyId', authenticateKeyOrToken, ensureWriteAccess, async (req, res) => {
   try {
     const { keyId } = req.params;
+    const { userId } = deriveActor(req);
 
-    const result = await apiKeyService.deleteApiKey(keyId, req.userId);
+    const result = await apiKeyService.deleteApiKey(keyId, userId);
 
     res.json({
       success: true,

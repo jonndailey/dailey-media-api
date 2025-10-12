@@ -1,0 +1,26 @@
+{
+  "name": "@dailey-media/js-sdk",
+  "version": "0.1.0",
+  "description": "Dailey Media API JavaScript client for internal projects.",
+  "type": "module",
+  "private": true,
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "lint": "echo \"No lint configured\"",
+    "test": "node --version"
+  },
+  "keywords": [
+    "dailey",
+    "media",
+    "sdk"
+  ],
+  "author": "Dailey Media Platform",
+  "license": "UNLICENSED",
+  "dependencies": {}
+}

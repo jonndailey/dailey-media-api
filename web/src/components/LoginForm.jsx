@@ -35,10 +35,25 @@ export default function LoginForm() {
 
   if (!isHealthy) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
-        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+      <div className="min-h-screen relative flex items-center justify-center">
+        {/* Iceberg-themed split background */}
+        <div className="absolute inset-0">
+          {/* Above water - sky blue gradient */}
+          <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-sky-200 via-sky-300 to-sky-400"></div>
+          {/* Below water - deep blue gradient */}
+          <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-b from-blue-600 via-blue-800 to-blue-900"></div>
+          {/* Water line */}
+          <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-white/30 transform -translate-y-0.5"></div>
+        </div>
+        <div className="relative z-10 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-8 w-full max-w-md border border-white/20">
           <div className="text-center">
-            <div className="text-4xl mb-4">⚠️</div>
+            <div className="flex items-center justify-center mb-4">
+              <img 
+                src="/android-chrome-192x192.png" 
+                alt="Dailey Media API Logo" 
+                className="w-48 h-48"
+              />
+            </div>
             <h2 className="text-2xl font-bold text-slate-900 mb-4">Service Unavailable</h2>
             <p className="text-slate-600 mb-4">
               DAILEY CORE authentication service is currently unavailable.
@@ -53,16 +68,27 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+    <div className="min-h-screen relative flex items-center justify-center">
+      {/* Iceberg-themed split background */}
+      <div className="absolute inset-0">
+        {/* Above water - sky blue gradient */}
+        <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-sky-200 via-sky-300 to-sky-400"></div>
+        {/* Below water - deep blue gradient */}
+        <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-b from-blue-600 via-blue-800 to-blue-900"></div>
+        {/* Water line */}
+        <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-white/30 transform -translate-y-0.5"></div>
+      </div>
+      <div className="relative z-10 bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-8 w-full max-w-md border border-white/20">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-2xl">D</span>
-            </div>
+            <img 
+              src="/android-chrome-192x192.png" 
+              alt="Dailey Media API Logo" 
+              className="w-48 h-48"
+            />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Dailey Media API</h1>
+          <h1 className="text-2xl font-bold text-slate-900">DAILEY MEDIA API</h1>
           <p className="text-slate-600 text-sm mt-2">Sign in to your account</p>
         </div>
 

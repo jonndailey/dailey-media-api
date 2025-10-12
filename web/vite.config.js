@@ -13,10 +13,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false
       },
-      '/health': {
-        target: 'http://localhost:5173',
+      '/auth/health': {
+        target: 'http://localhost:3002/health',
         changeOrigin: true,
-        secure: false
+        secure: false,
+        rewrite: (path) => path.replace(/^\/auth\/health/, '')
       },
       '/auth': {
         target: 'http://localhost:3002',

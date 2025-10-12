@@ -46,15 +46,23 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
       const totalCount = await databaseService.countMediaFiles(filters);
 
       // Add URLs and type info to each file
-      const filesWithMetadata = results.map(file => {
+      const filesWithMetadata = await Promise.all(results.map(async file => {
         const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
+        const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
+        const thumbnailAccess = file.thumbnail_key
+          ? await storageService.getAccessDetails(file.thumbnail_key, { access: file.is_public ? 'public' : 'private' })
+          : { publicUrl: null, signedUrl: null, access: accessDetails.access };
+
         return {
           ...file,
           category: typeInfo.category,
-          public_url: storageService.getPublicUrl(file.storage_key),
-          thumbnail_url: file.thumbnail_key ? storageService.getPublicUrl(file.thumbnail_key) : null
+          access: accessDetails.access,
+          public_url: accessDetails.publicUrl,
+          signed_url: accessDetails.signedUrl,
+          thumbnail_url: thumbnailAccess.publicUrl,
+          thumbnail_signed_url: thumbnailAccess.signedUrl
         };
-      });
+      }));
 
       res.json({
         success: true,
@@ -118,13 +126,20 @@ router.get('/:id', authenticateToken, requireScope('read'), async (req, res) => 
 
       // Get variants if any
       const variants = await databaseService.getMediaVariants(id);
-      const variantsWithUrls = variants.map(v => ({
-        ...v,
-        url: storageService.getPublicUrl(v.storage_key)
+      const variantsWithUrls = await Promise.all(variants.map(async v => {
+        const variantAccess = await storageService.getAccessDetails(v.storage_key, { access: file.is_public ? 'public' : 'private' });
+        return {
+          ...v,
+          access: variantAccess.access,
+          url: variantAccess.publicUrl,
+          signed_url: variantAccess.signedUrl
+        };
       }));
 
       // Get type info
       const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
+
+      const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
 
       res.json({
         success: true,
@@ -132,7 +147,9 @@ router.get('/:id', authenticateToken, requireScope('read'), async (req, res) => 
           ...file,
           category: typeInfo.category,
           mime: typeInfo.mime,
-          public_url: storageService.getPublicUrl(file.storage_key),
+          access: accessDetails.access,
+          public_url: accessDetails.publicUrl,
+          signed_url: accessDetails.signedUrl,
           variants: variantsWithUrls
         }
       });
@@ -401,14 +418,17 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
       res.json({
         success: true,
         query: q,
-        results: results.map(file => {
+        results: await Promise.all(results.map(async file => {
           const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
+          const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
           return {
             ...file,
             category: typeInfo.category,
-            public_url: storageService.getPublicUrl(file.storage_key)
+            access: accessDetails.access,
+            public_url: accessDetails.publicUrl,
+            signed_url: accessDetails.signedUrl
           };
-        }),
+        })),
         pagination: {
           total: totalCount,
           limit: pagination.limit,

@@ -55,7 +55,8 @@ router.get('/realtime',
         uploads: 0,
         accesses: 0,
         bandwidth: 0,
-        uniqueUsers: new Set(),
+        uniqueUsers: [],
+        uniqueEmails: [],
         hourlyAccesses: Array(24).fill(0)
       }
 
@@ -74,7 +75,7 @@ router.get('/realtime',
             uploads: todayStats.uploads,
             accesses: todayStats.accesses,
             bandwidth: analyticsService.formatBytes(todayStats.bandwidth || 0),
-            uniqueUsers: todayStats.uniqueUsers ? todayStats.uniqueUsers.size : 0
+            uniqueUsers: Array.isArray(todayStats.uniqueUsers) ? todayStats.uniqueUsers.length : 0
           },
           overall: {
             totalFiles: stats.overview.totalFiles || 0,
@@ -109,7 +110,7 @@ router.get('/files/top',
         .map(([fileId, data]) => ({
           fileId,
           accesses: data.count,
-          uniqueUsers: data.users ? data.users.size : 0,
+          uniqueUsers: Array.isArray(data.users) ? data.users.length : 0,
           lastAccessed: data.lastAccessed,
           // Try to get additional file info if available
           filename: `file_${fileId.slice(-8)}.ext`, // Mock filename
@@ -154,7 +155,9 @@ router.get('/export',
         
         // Add daily data to CSV
         Object.entries(analytics.dailyStats || {}).forEach(([date, stats]) => {
-          csv += `${date},${stats.uploads || 0},${stats.accesses || 0},${stats.bandwidth || 0},${stats.uniqueUsers ? stats.uniqueUsers.size : 0}\n`
+          const uniqueUsers = Array.isArray(stats.uniqueUsers) ? stats.uniqueUsers.length : 0
+          const bandwidth = stats.bandwidth || 0
+          csv += `${date},${stats.uploads || 0},${stats.accesses || 0},${bandwidth},${uniqueUsers}\n`
         })
 
         res.setHeader('Content-Type', 'text/csv')
