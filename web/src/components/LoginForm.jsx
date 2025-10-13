@@ -156,9 +156,28 @@ export default function LoginForm() {
 
         {/* Footer */}
         <div className="mt-8 text-center">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 mb-2">
             Powered by DAILEY CORE Authentication
           </p>
+          <div className="flex justify-center space-x-4 text-xs text-slate-400">
+            <a 
+              href="/legal/privacy-policy.md" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="hover:text-slate-600 hover:underline"
+            >
+              Privacy Policy
+            </a>
+            <span>•</span>
+            <a 
+              href="/legal/terms-of-service.md" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="hover:text-slate-600 hover:underline"
+            >
+              Terms of Service
+            </a>
+          </div>
         </div>
       </div>
     </div>

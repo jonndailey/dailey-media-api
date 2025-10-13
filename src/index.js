@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import swaggerUi from 'swagger-ui-express';
 import config from './config/index.js';
 import { specs } from './config/swagger.js';
@@ -77,6 +78,9 @@ app.use('/docs', swaggerUi.serve, swaggerUi.setup(specs, {
     showCommonExtensions: true
   }
 }));
+
+// Legal documents
+app.use('/legal', express.static(path.join(__dirname, '../docs')));
 
 // API routes
 app.use('/health', healthRoutes);
