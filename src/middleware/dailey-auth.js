@@ -7,6 +7,21 @@ const rateLimitStore = new Map();
 
 export const authenticateToken = async (req, res, next) => {
   try {
+    // Skip authentication in development if DISABLE_AUTH is true
+    if (process.env.DISABLE_AUTH === 'true' && process.env.NODE_ENV === 'development') {
+      // Set default test user data
+      req.user = {
+        id: 'test-user-id',
+        email: 'test@example.com',
+        name: 'Test User'
+      };
+      req.userRoles = ['user', 'api.write', 'api.read', 'analytics.viewer'];
+      req.userTenants = [];
+      req.userId = 'test-user-id';
+      req.appId = 'dailey-media-api';
+      return next();
+    }
+
     const token = extractToken(req);
     
     if (!token) {

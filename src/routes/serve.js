@@ -72,17 +72,18 @@ router.get('/files/:userId/:filename', async (req, res) => {
   }
 });
 
-// Serve files with bucket support
-router.get('/files/:userId/:bucketId/:filename', async (req, res) => {
+// Serve files with bucket support (including nested paths)
+router.get('/files/:userId/:bucketId/*', async (req, res) => {
   try {
-    const { userId, bucketId, filename } = req.params;
+    const { userId, bucketId } = req.params;
+    const filePath = req.params[0]; // This captures the rest of the path after bucketId
     
     // Construct file path in storage directory with bucket
     const storageDir = path.join(process.cwd(), 'storage', 'files', userId, bucketId);
-    const filePath = path.join(storageDir, filename);
+    const fullFilePath = path.join(storageDir, filePath);
     
     // Check if file exists
-    if (!fs.existsSync(filePath)) {
+    if (!fs.existsSync(fullFilePath)) {
       return res.status(404).json({ 
         error: 'File not found',
         message: 'The requested file does not exist'
@@ -90,17 +91,17 @@ router.get('/files/:userId/:bucketId/:filename', async (req, res) => {
     }
     
     // Get file stats
-    const stats = fs.statSync(filePath);
+    const stats = fs.statSync(fullFilePath);
     const fileSize = stats.size;
     
     // Determine MIME type
-    const mimeType = mime.lookup(filePath) || 'application/octet-stream';
+    const mimeType = mime.lookup(fullFilePath) || 'application/octet-stream';
     
     // Set appropriate headers
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Length', fileSize);
     res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Disposition', `inline; filename="${path.basename(filePath)}"`);
     res.setHeader('Access-Control-Allow-Origin', '*'); // Allow cross-origin access
     
     // Handle range requests for video/audio streaming
@@ -116,16 +117,16 @@ router.get('/files/:userId/:bucketId/:filename', async (req, res) => {
       res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Content-Length', chunksize);
       
-      const stream = fs.createReadStream(filePath, { start, end });
+      const stream = fs.createReadStream(fullFilePath, { start, end });
       stream.pipe(res);
     } else {
       // Stream the entire file
-      const stream = fs.createReadStream(filePath);
+      const stream = fs.createReadStream(fullFilePath);
       stream.pipe(res);
     }
     
     // Log access
-    console.log(`File served: ${filename} from user ${userId} bucket ${bucketId}`);
+    console.log(`File served: ${filePath} from user ${userId} bucket ${bucketId}`);
     
   } catch (error) {
     console.error('Error serving file:', error);

@@ -203,10 +203,11 @@ class AnalyticsService {
 
       // Update file type stats
       const category = fileData.category || 'other'
-      if (stats.fileTypes[category]) {
-        stats.fileTypes[category].count += 1
-        stats.fileTypes[category].size += fileData.size
+      if (!stats.fileTypes[category]) {
+        stats.fileTypes[category] = { count: 0, size: 0 }
       }
+      stats.fileTypes[category].count += 1
+      stats.fileTypes[category].size += fileData.size
 
       await this.updateStats(stats)
       return stats

@@ -1,10 +1,10 @@
 {
   "overview": {
-    "totalFiles": 3,
-    "totalSize": 1506508,
+    "totalFiles": 16,
+    "totalSize": 1606119,
     "totalAccesses": 0,
     "uniqueUsers": 0,
-    "lastUpdated": "2025-10-11T01:01:11.486Z"
+    "lastUpdated": "2025-10-14T04:20:07.079Z"
   },
   "fileAccesses": {},
   "userAccesses": {},
@@ -78,6 +78,45 @@
         0,
         0
       ]
+    },
+    "2025-10-14": {
+      "uploads": 13,
+      "accesses": 0,
+      "bandwidth": 0,
+      "uniqueUsers": [
+        "bc9dca8e-2ddd-4498-9120-9debacc5e89f",
+        "test-user-id"
+      ],
+      "uniqueEmails": [
+        "admin@dailey.cloud",
+        "test@example.com"
+      ],
+      "hourlyAccesses": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     }
   },
   "fileTypes": {
@@ -102,8 +141,8 @@
       "size": 0
     },
     "code": {
-      "count": 0,
-      "size": 0
+      "count": 1,
+      "size": 21
     },
     "data": {
       "count": 0,
@@ -112,6 +151,10 @@
     "other": {
       "count": 0,
       "size": 0
+    },
+    "text": {
+      "count": 2,
+      "size": 40
     }
   },
   "performance": {

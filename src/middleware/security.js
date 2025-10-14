@@ -23,6 +23,7 @@ export const securityHeaders = helmet({
     includeSubDomains: true,
     preload: true
   },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
   noSniff: true,
   xssFilter: true,
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' }

@@ -611,7 +611,7 @@ function BucketsSection() {
     
     setIsDeleting(true)
     try {
-      await makeAuthenticatedRequest(`/api/files/${fileToDelete.id}`, {
+      await makeAuthenticatedRequest(`/api/buckets/${selectedBucket.id}/files/${fileToDelete.id}`, {
         method: 'DELETE'
       })
       

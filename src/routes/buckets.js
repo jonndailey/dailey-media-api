@@ -306,6 +306,41 @@ router.get('/:bucketId/files', authenticateToken, requireScope('read'), async (r
   }
 });
 
+// Delete file from bucket
+router.delete('/:bucketId/files/:fileId', authenticateToken, requireScope('upload'), async (req, res) => {
+  try {
+    const { bucketId, fileId } = req.params;
+    
+    // For filesystem-based storage (when database not available)
+    try {
+      await storageService.deleteFileFromBucket(req.userId, bucketId, fileId);
+      
+      res.json({
+        success: true,
+        message: 'File deleted successfully'
+      });
+    } catch (deleteError) {
+      if (deleteError.code === 'ENOENT') {
+        return res.status(404).json({
+          success: false,
+          error: 'File not found'
+        });
+      }
+      throw deleteError;
+    }
+  } catch (error) {
+    logError(error, { 
+      context: 'buckets.deleteFile', 
+      bucketId: req.params.bucketId,
+      fileId: req.params.fileId 
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete file'
+    });
+  }
+});
+
 // Get bucket details
 router.get('/:bucketId', authenticateToken, requireScope('read'), async (req, res) => {
   try {

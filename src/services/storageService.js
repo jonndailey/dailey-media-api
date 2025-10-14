@@ -776,6 +776,34 @@ class StorageService {
       return { status: 'unhealthy', type: this.storageType, error: error.message };
     }
   }
+
+  /**
+   * Delete a file from a specific bucket
+   */
+  async deleteFileFromBucket(userId, bucketId, fileId) {
+    try {
+      // Construct the storage key from the file ID (which should be the filename)
+      const storageKey = `files/${userId}/${bucketId}/${fileId}`;
+      
+      logInfo('Deleting file from bucket', { 
+        userId, 
+        bucketId, 
+        fileId, 
+        storageKey 
+      });
+
+      // Use the existing deleteFile method
+      return await this.deleteFile(storageKey);
+    } catch (error) {
+      logError(error, { 
+        context: 'StorageService.deleteFileFromBucket',
+        userId,
+        bucketId,
+        fileId
+      });
+      throw error;
+    }
+  }
 }
 
 export default new StorageService();
