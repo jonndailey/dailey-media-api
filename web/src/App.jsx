@@ -8,7 +8,7 @@ import ApiKeysTab from './components/ApiKeysTab.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import LoginForm from './components/LoginForm'
-import { Upload, Folder, BarChart3, BookOpen, KeyRound, FolderOpen, Image, FileText, Package, Eye, Zap, Plus, Settings, ArrowLeft, ChevronRight, MoreVertical, Download, Info, ExternalLink, Copy, X, ArrowUpDown } from 'lucide-react'
+import { Upload, Folder, BarChart3, BookOpen, KeyRound, FolderOpen, Image, FileText, Package, Eye, Zap, Plus, Settings, ArrowLeft, ChevronRight, MoreVertical, Download, Info, ExternalLink, Copy, X, ArrowUpDown, Trash2 } from 'lucide-react'
 
 // Main authenticated app content
 function AuthenticatedApp() {
@@ -178,6 +178,8 @@ function BucketsSection() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [sortField, setSortField] = useState('name')
   const [sortDirection, setSortDirection] = useState('asc')
+  const [fileToDelete, setFileToDelete] = useState(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   const closeTimeoutRef = useRef(null)
   const previewCloseTimeoutRef = useRef(null)
   const originalOverflowRef = useRef(null)
@@ -598,6 +600,43 @@ function BucketsSection() {
       setPreviewError(null)
       previewCloseTimeoutRef.current = null
     }, 300)
+  }
+
+  const handleDeleteFile = (file) => {
+    setFileToDelete(file)
+  }
+
+  const confirmDeleteFile = async () => {
+    if (!fileToDelete) return
+    
+    setIsDeleting(true)
+    try {
+      await makeAuthenticatedRequest(`/api/files/${fileToDelete.id}`, {
+        method: 'DELETE'
+      })
+      
+      // Remove the file from the current files list
+      setFiles(prevFiles => prevFiles.filter(f => f.id !== fileToDelete.id))
+      
+      // Close any open modals for this file
+      if (selectedFile?.id === fileToDelete.id) {
+        closeFileDetails()
+      }
+      if (previewFile?.id === fileToDelete.id) {
+        closePreview(true)
+      }
+      
+    } catch (error) {
+      console.error('Failed to delete file:', error)
+      setError(`Failed to delete file: ${error.message}`)
+    } finally {
+      setIsDeleting(false)
+      setFileToDelete(null)
+    }
+  }
+
+  const cancelDeleteFile = () => {
+    setFileToDelete(null)
   }
 
   const detailsPortal = (typeof document !== 'undefined' && selectedFile)
@@ -1123,6 +1162,48 @@ function BucketsSection() {
 
       {previewPortal}
 
+      {/* Delete Confirmation Modal */}
+      {fileToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={cancelDeleteFile} />
+          <div className="relative bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full mx-4 p-6">
+            <div className="flex items-start space-x-4">
+              <div className="flex-shrink-0">
+                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                  <Trash2 className="w-5 h-5 text-red-600" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                  Delete File
+                </h3>
+                <p className="text-sm text-slate-600 mb-4">
+                  Are you sure you want to delete "{fileToDelete.original_filename || fileToDelete.name}"? This action cannot be undone.
+                </p>
+                <div className="flex justify-end space-x-3">
+                  <button
+                    type="button"
+                    onClick={cancelDeleteFile}
+                    disabled={isDeleting}
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmDeleteFile}
+                    disabled={isDeleting}
+                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isDeleting ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 rounded-lg p-4">
           <p className="text-red-600">Error: {error}</p>
@@ -1238,6 +1319,14 @@ function BucketsSection() {
                               >
                                 <Info className="w-4 h-4 mr-1" />
                                 Details
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteFile(file)}
+                                className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4 mr-1" />
+                                Delete
                               </button>
                             </>
                           )}
