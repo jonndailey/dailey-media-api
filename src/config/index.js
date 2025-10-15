@@ -48,6 +48,12 @@ export const config = {
     maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000')
   },
 
+  // OCR
+  ocr: createOcrConfig(),
+
+  // Document conversion
+  conversion: createConversionConfig(),
+
   // Monitoring
   logging: {
     level: process.env.LOG_LEVEL || 'info'
@@ -70,6 +76,117 @@ function parseVariantSizes(sizesString) {
     }
   });
   return sizes;
+}
+
+function parseLanguageList(value, fallback = []) {
+  if (!value) {
+    return [...fallback];
+  }
+
+  return value
+    .split(/[\s,;+]+/)
+    .map(code => code.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function createOcrConfig() {
+  const defaultSupportedLanguages = [
+    'eng', // English
+    'spa', // Spanish
+    'fra', // French
+    'deu', // German
+    'ita', // Italian
+    'por', // Portuguese
+    'nld', // Dutch
+    'pol', // Polish
+    'swe', // Swedish
+    'fin', // Finnish
+    'tur', // Turkish
+    'jpn', // Japanese
+    'chi_sim' // Simplified Chinese
+  ];
+
+  const supportedLanguages = Array.from(
+    new Set(parseLanguageList(process.env.OCR_SUPPORTED_LANGUAGES, defaultSupportedLanguages))
+  );
+
+  const defaultLanguages = parseLanguageList(
+    process.env.OCR_DEFAULT_LANGUAGES,
+    supportedLanguages.slice(0, 2)
+  ).filter(code => supportedLanguages.includes(code));
+
+  const maxLanguagesPerRequest = Math.max(
+    1,
+    parseInt(process.env.OCR_MAX_LANGUAGES || '3', 10)
+  );
+
+  return {
+    supportedLanguages,
+    defaultLanguages: defaultLanguages.length ? defaultLanguages : supportedLanguages.slice(0, 1),
+    maxLanguagesPerRequest,
+    enableSearchablePdf: process.env.OCR_ENABLE_SEARCHABLE_PDF !== 'false',
+    enableStructuredData: process.env.OCR_ENABLE_STRUCTURED_DATA !== 'false'
+  };
+}
+
+function parseKeyValuePairs(value, fallback = {}) {
+  if (!value) {
+    return { ...fallback };
+  }
+
+  const parsed = { ...fallback };
+  value.split(',').forEach(pair => {
+    const [key, rawValue] = pair.split(':');
+    if (!key) return;
+    parsed[key.trim()] = typeof rawValue === 'undefined'
+      ? true
+      : rawValue.trim().toLowerCase() === 'true'
+        ? true
+        : rawValue.trim().toLowerCase() === 'false'
+          ? false
+          : rawValue.trim();
+  });
+
+  return parsed;
+}
+
+function createConversionConfig() {
+  const defaultSupportedTargets = {
+    doc: ['pdf'],
+    docx: ['pdf'],
+    xls: ['pdf'],
+    xlsx: ['pdf'],
+    ppt: ['pdf'],
+    pptx: ['pdf'],
+    odt: ['pdf'],
+    ods: ['pdf'],
+    odp: ['pdf'],
+    md: ['html', 'pdf'],
+    markdown: ['html', 'pdf'],
+    html: ['pdf'],
+    htm: ['pdf']
+  };
+
+  const supportedMap = parseKeyValuePairs(
+    process.env.CONVERSION_SUPPORTED_MAP,
+    defaultSupportedTargets
+  );
+
+  const maxBatchSize = Math.max(
+    1,
+    parseInt(process.env.CONVERSION_MAX_BATCH || '10', 10)
+  );
+
+  return {
+    libreOfficePath: process.env.LIBREOFFICE_BINARY || null,
+    pandocPath: process.env.PANDOC_BINARY || null,
+    supportedTargets: supportedMap,
+    maxBatchSize,
+    defaultWatermark: process.env.CONVERSION_DEFAULT_WATERMARK || null,
+    enableWatermarking: process.env.CONVERSION_ENABLE_WATERMARKING !== 'false',
+    enableCompression: process.env.CONVERSION_ENABLE_COMPRESSION !== 'false',
+    enableSecurityOptions: process.env.CONVERSION_ENABLE_SECURITY !== 'false'
+  };
 }
 
 export default config;

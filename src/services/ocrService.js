@@ -6,29 +6,66 @@ import fileService from './fileService.js';
 import { logInfo, logError, logWarning } from '../middleware/logger.js';
 import { renderPdfFirstPage } from '../utils/pdfUtils.js';
 import { parseReceiptSuggestions } from '../utils/receiptParser.js';
+import config from '../config/index.js';
+import { getLanguageMetadataByCode } from '../config/ocrLanguages.js';
+import buildStructuredOcrData from '../utils/structuredOcr.js';
 
-const DEFAULT_LANGUAGES = ['eng'];
+const SUPPORTED_LANGUAGES = config.ocr.supportedLanguages;
+const DEFAULT_LANGUAGES = config.ocr.defaultLanguages;
+const MAX_LANGUAGES_PER_REQUEST = config.ocr.maxLanguagesPerRequest;
+const SEARCHABLE_PDF_ENABLED = config.ocr.enableSearchablePdf !== false;
+const STRUCTURED_DATA_ENABLED = config.ocr.enableStructuredData !== false;
 const WORKER_CACHE = new Map();
 
 function normalizeLanguages(languages) {
-  if (!languages) {
-    return [...DEFAULT_LANGUAGES];
-  }
+  let requested = [];
 
-  if (typeof languages === 'string') {
-    return languages
+  if (!languages) {
+    requested = [...DEFAULT_LANGUAGES];
+  } else if (typeof languages === 'string') {
+    requested = languages
       .split(/[\s,;+]+/)
       .map(code => code.trim().toLowerCase())
       .filter(Boolean);
-  }
-
-  if (Array.isArray(languages)) {
-    return languages
+  } else if (Array.isArray(languages)) {
+    requested = languages
       .map(code => (code || '').toString().trim().toLowerCase())
       .filter(Boolean);
+  } else {
+    requested = [...DEFAULT_LANGUAGES];
   }
 
-  return [...DEFAULT_LANGUAGES];
+  if (!requested.length) {
+    requested = [...DEFAULT_LANGUAGES];
+  }
+
+  const unique = Array.from(new Set(requested));
+
+  const unsupported = unique.filter(code => !SUPPORTED_LANGUAGES.includes(code));
+  const supported = unique.filter(code => SUPPORTED_LANGUAGES.includes(code));
+
+  if (!supported.length) {
+    const error = new Error(`Unsupported OCR languages requested: ${unique.join(', ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (unsupported.length) {
+    logWarning('Requested OCR languages include unsupported codes', {
+      unsupported,
+      supported
+    });
+  }
+
+  if (supported.length > MAX_LANGUAGES_PER_REQUEST) {
+    const error = new Error(
+      `Too many OCR languages requested. Maximum allowed is ${MAX_LANGUAGES_PER_REQUEST}`
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return supported;
 }
 
 function getLanguageKey(languages) {
@@ -136,6 +173,27 @@ function extractLineData(line) {
 }
 
 class OcrService {
+  getSupportedLanguages() {
+    return SUPPORTED_LANGUAGES.map(code => {
+      const metadata = getLanguageMetadataByCode(code);
+
+      return {
+        code,
+        name: metadata?.name || code,
+        nativeName: metadata?.nativeName || metadata?.name || code,
+        default: DEFAULT_LANGUAGES.includes(code)
+      };
+    });
+  }
+
+  getCapabilities() {
+    return {
+      maxLanguagesPerRequest: MAX_LANGUAGES_PER_REQUEST,
+      searchablePdf: SEARCHABLE_PDF_ENABLED,
+      structuredData: STRUCTURED_DATA_ENABLED
+    };
+  }
+
   async performOcr(mediaFileId, options = {}) {
     const {
       languages: requestedLanguages,
@@ -180,6 +238,28 @@ class OcrService {
 
     const languages = normalizeLanguages(requestedLanguages);
     const languageKey = getLanguageKey(languages.length ? languages : DEFAULT_LANGUAGES);
+
+    const resolvedOutput = {
+      plainText: output.plainText !== false,
+      confidence: output.confidence !== false,
+      hocr: Boolean(output.hocr),
+      tsv: Boolean(output.tsv),
+      searchablePDF: Boolean(output.searchablePDF) && SEARCHABLE_PDF_ENABLED,
+      structured: output.structured !== false && STRUCTURED_DATA_ENABLED
+    };
+
+    if (output.searchablePDF && !SEARCHABLE_PDF_ENABLED) {
+      logWarning('Searchable PDF generation requested but disabled in configuration', {
+        mediaFileId
+      });
+    }
+
+    if (output.structured === true && !STRUCTURED_DATA_ENABLED) {
+      logWarning('Structured OCR data requested but disabled in configuration', {
+        mediaFileId
+      });
+    }
+
     const worker = await getWorker(languageKey);
 
     const originalBuffer = await storageService.getFileBuffer(mediaFile.storage_key);
@@ -241,7 +321,7 @@ class OcrService {
     const confidenceSummary = buildConfidenceSummary(words);
 
     let pdfUpload = null;
-    if (output.searchablePDF) {
+    if (resolvedOutput.searchablePDF) {
       if (typeof worker.getPDF === 'function') {
         try {
           const pdfResult = await worker.getPDF(`dmapi-ocr-${mediaFileId}`);
@@ -273,6 +353,15 @@ class OcrService {
     }
 
     const suggestions = parseReceiptSuggestions(plainText);
+    let structured = null;
+
+    if (resolvedOutput.structured) {
+      structured = buildStructuredOcrData({
+        lines,
+        words,
+        text: plainText
+      });
+    }
 
     const response = {
       mediaFileId,
@@ -297,15 +386,21 @@ class OcrService {
         words: words.length,
         ...derivedMetadata
       },
-      output: {
-        plainText: output.plainText !== false,
-        confidence: output.confidence !== false,
-        hocr: Boolean(output.hocr),
-        tsv: Boolean(output.tsv),
-        searchablePDF: Boolean(output.searchablePDF)
-      },
+      output: resolvedOutput,
       suggestions
     };
+
+    if (structured) {
+      response.structured = structured;
+      derivedMetadata = {
+        ...derivedMetadata,
+        structuredSummary: {
+          keyValuePairs: structured.keyValuePairs.length,
+          tables: structured.tables.length,
+          formFields: structured.formFields.length
+        }
+      };
+    }
 
     if (response.output.confidence) {
       response.words = words;

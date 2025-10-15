@@ -234,6 +234,33 @@ CREATE TABLE IF NOT EXISTS media_ocr_results (
     FULLTEXT idx_media_ocr_text (text)
 );
 
+-- Document conversion jobs
+CREATE TABLE IF NOT EXISTS media_conversion_jobs (
+    id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    media_file_id VARCHAR(36) NOT NULL,
+    source_format VARCHAR(20) NOT NULL,
+    target_format VARCHAR(20) NOT NULL,
+    status ENUM('pending', 'processing', 'completed', 'failed') DEFAULT 'pending',
+    options JSON,
+    metadata JSON,
+    output_storage_key VARCHAR(500),
+    output_file_size BIGINT,
+    output_mime_type VARCHAR(100),
+    duration_ms INT,
+    error_message TEXT,
+    batch_id VARCHAR(36),
+    created_by VARCHAR(36),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL,
+    
+    FOREIGN KEY (media_file_id) REFERENCES media_files(id) ON DELETE CASCADE,
+    
+    INDEX idx_conversion_media (media_file_id),
+    INDEX idx_conversion_status (status),
+    INDEX idx_conversion_batch (batch_id),
+    INDEX idx_conversion_created (created_at)
+);
+
 -- Media tags (many-to-many relationship)
 CREATE TABLE IF NOT EXISTS media_tags (
     id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),

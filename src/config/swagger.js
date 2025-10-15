@@ -208,6 +208,49 @@ const options = {
               format: 'date-time'
             }
           }
+        },
+        ConversionJob: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'job_01JBDR3ZKX' },
+            media_file_id: { type: 'string', example: 'media-123' },
+            source_format: { type: 'string', example: 'docx' },
+            target_format: { type: 'string', example: 'pdf' },
+            status: {
+              type: 'string',
+              enum: ['pending', 'processing', 'completed', 'failed'],
+              example: 'completed'
+            },
+            options: {
+              type: 'object',
+              example: {
+                watermark: 'CONFIDENTIAL',
+                security: {
+                  stripMetadata: true
+                }
+              }
+            },
+            metadata: {
+              type: 'object',
+              example: {
+                engine: 'libreoffice',
+                watermarkApplied: true,
+                securityApplied: true
+              }
+            },
+            output_storage_key: {
+              type: 'string',
+              example: 'conversions/media-123/1729004000-f3a1b2.pdf'
+            },
+            output_file_size: { type: 'integer', example: 204800 },
+            output_mime_type: { type: 'string', example: 'application/pdf' },
+            duration_ms: { type: 'integer', example: 1832 },
+            error_message: { type: 'string', nullable: true },
+            batch_id: { type: 'string', nullable: true, example: 'batch_01JBDR39VD' },
+            created_by: { type: 'string', example: 'user-123' },
+            created_at: { type: 'string', format: 'date-time' },
+            completed_at: { type: 'string', format: 'date-time', nullable: true }
+          }
         }
       },
       responses: {
@@ -313,6 +356,10 @@ const options = {
       {
         name: 'Serve',
         description: 'File serving and public access'
+      },
+      {
+        name: 'Document Conversion',
+        description: 'Document transformation, batch workflows, and job history'
       }
     ]
   },

@@ -32,6 +32,21 @@ function attachSuggestions(result) {
   };
 }
 
+router.get('/languages', authenticateToken, requireScope('read'), (req, res) => {
+  const languages = ocrService.getSupportedLanguages();
+  const capabilities = ocrService.getCapabilities();
+
+  res.json({
+    success: true,
+    languages,
+    defaults: {
+      languages: languages.filter(language => language.default).map(language => language.code),
+      maxLanguagesPerRequest: capabilities.maxLanguagesPerRequest
+    },
+    capabilities
+  });
+});
+
 router.post('/:mediaFileId/extract', authenticateToken, requireScope('read'), async (req, res) => {
   try {
     const { mediaFileId } = req.params;

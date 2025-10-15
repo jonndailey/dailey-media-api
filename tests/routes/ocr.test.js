@@ -58,7 +58,9 @@ beforeAll(async () => {
   };
 
   ocrServiceMock = {
-    performOcr: jest.fn()
+    performOcr: jest.fn(),
+    getSupportedLanguages: jest.fn(),
+    getCapabilities: jest.fn()
   };
 
   storageServiceMock = {
@@ -97,12 +99,41 @@ beforeEach(() => {
   databaseServiceMock.listOcrResults.mockResolvedValue([]);
   databaseServiceMock.getOcrResult.mockResolvedValue(null);
 
-  ocrServiceMock.performOcr.mockReset();
-
+  ocrServiceMock.getSupportedLanguages.mockReturnValue([
+    { code: 'eng', name: 'English', nativeName: 'English', default: true },
+    { code: 'spa', name: 'Spanish', nativeName: 'Espanol', default: false }
+  ]);
+  ocrServiceMock.getCapabilities.mockReturnValue({
+    maxLanguagesPerRequest: 3,
+    searchablePdf: true,
+    structuredData: true
+  });
   storageServiceMock.getAccessDetails.mockResolvedValue({
     access: 'private',
     publicUrl: null,
     signedUrl: 'signed-url'
+  });
+});
+
+describe('GET /api/ocr/languages', () => {
+  it('returns supported languages and capabilities', async () => {
+    const app = createApp();
+
+    const response = await request(app)
+      .get('/api/ocr/languages')
+      .set(...AUTH_HEADER)
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.languages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'eng', default: true }),
+      expect.objectContaining({ code: 'spa', default: false })
+    ]));
+    expect(response.body.capabilities).toEqual(expect.objectContaining({
+      maxLanguagesPerRequest: 3,
+      searchablePdf: true,
+      structuredData: true
+    }));
   });
 });
 
@@ -146,6 +177,12 @@ describe('POST /api/ocr/:mediaFileId/extract', () => {
     ocrServiceMock.performOcr.mockResolvedValue({
       mediaFileId: 'media-1',
       text: 'fresh result',
+      structured: {
+        keyValuePairs: [{ key: 'Total', value: '$12.34' }],
+        tables: [],
+        formFields: [],
+        stats: { linesAnalyzed: 4, wordsAnalyzed: 12, textLength: 42 }
+      },
       suggestions: {
         total: '12.34',
         date: null,
@@ -168,6 +205,10 @@ describe('POST /api/ocr/:mediaFileId/extract', () => {
       date: null,
       merchant: 'Coffee World'
     });
+    expect(response.body.result.structured).toEqual(expect.objectContaining({
+      keyValuePairs: expect.any(Array),
+      tables: expect.any(Array)
+    }));
     expect(ocrServiceMock.performOcr).toHaveBeenCalledWith('media-1', expect.objectContaining({
       languages: ['eng', 'spa'],
       persist: true,

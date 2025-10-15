@@ -10,6 +10,8 @@ The Dailey Media API is a secure, scalable media storage and processing service 
 - 🔐 **Enterprise Security**: JWT authentication, MFA, rate limiting
 - 📁 **Flexible Storage**: Bucket and folder organization with nested support
 - 🌐 **Multi-Format Support**: Images, videos, audio, documents, and more
+- 🧾 **Document Intelligence**: OCR, structured extraction, and receipt insights
+- 🔄 **Document Conversion**: Office → PDF, Markdown/HTML rendering, and batch pipelines
 - 📊 **Analytics**: Comprehensive usage statistics and monitoring
 - 🔧 **Developer Friendly**: SDKs, CLI tools, and interactive documentation
 
@@ -79,6 +81,13 @@ curl -H "Authorization: Bearer YOUR_TOKEN" https://api.dailey.dev/api/files
 - `GET /api/buckets/:id` - Get bucket details
 - `DELETE /api/buckets/:id` - Delete bucket
 
+#### Document Conversion
+- `GET /api/conversion/supported` - List supported source/target formats
+- `POST /api/conversion/:mediaFileId/convert` - Convert a single media file
+- `POST /api/conversion/batch` - Run a batch conversion workflow
+- `GET /api/conversion/:mediaFileId/jobs` - View conversion history for a media item
+- `GET /api/conversion/jobs/:jobId` - Inspect a specific conversion job
+
 #### Authentication
 - `POST /api/auth/mfa/setup` - Setup MFA
 - `POST /api/auth/refresh` - Refresh token
@@ -135,6 +144,12 @@ dmedia download file-id-123
 # Show analytics
 dmedia analytics
 ```
+
+## Further Reading
+
+- [OCR and Text Extraction](./ocr.md)
+- [Document Conversion Service](./conversion.md)
+- [Compliance & Privacy](./compliance.md)
 
 ## Security
 

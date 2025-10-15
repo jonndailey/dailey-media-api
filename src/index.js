@@ -18,6 +18,7 @@ import apiKeyRoutes from './routes/apiKeys.js';
 import analyticsRoutes from './routes/analytics.js';
 import serveRoutes from './routes/serve.js';
 import ocrRoutes from './routes/ocr.js';
+import conversionRoutes from './routes/conversion.js';
 import { errorHandler } from './middleware/error.js';
 import { requestLogger } from './middleware/logger.js';
 import databaseService from './services/databaseService.js';
@@ -98,6 +99,7 @@ app.use('/api/buckets', bucketsRoutes); // Bucket/folder management
 app.use('/api/analytics', analyticsRoutes); // Analytics and stats
 app.use('/api/serve', serveRoutes);     // File serving and public links
 app.use('/api/ocr', ocrRoutes);         // OCR and text extraction
+app.use('/api/conversion', conversionRoutes); // Document conversions
 
 // API info endpoint
 app.get('/api', (req, res) => {
@@ -113,7 +115,8 @@ app.get('/api', (req, res) => {
       upload: '/api/upload',     // Upload any file type
       buckets: '/api/buckets',   // Bucket management
       analytics: '/api/analytics', // Usage statistics
-      serve: '/api/serve'        // File serving and public links
+      serve: '/api/serve',        // File serving and public links
+      conversion: '/api/conversion' // Document conversion workflows
     },
     features: [
       'Accepts ALL file types',
@@ -125,7 +128,8 @@ app.get('/api', (req, res) => {
       'Multi-factor authentication (MFA)',
       'Rate limiting and security hardening',
       'Content serving and streaming',
-      'Advanced analytics and monitoring'
+      'Advanced analytics and monitoring',
+      'Document conversion and PDF generation'
     ],
     security: {
       authentication: 'Bearer JWT tokens',

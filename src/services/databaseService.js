@@ -638,6 +638,194 @@ class DatabaseService {
     }
   }
 
+  formatConversionJob(row) {
+    if (!row) {
+      return null;
+    }
+
+    return {
+      ...row,
+      options: this.safeParseJson(row.options, {}),
+      metadata: this.safeParseJson(row.metadata, {})
+    };
+  }
+
+  async createConversionJob(jobData) {
+    try {
+      if (!this.isAvailable()) {
+        return null;
+      }
+
+      const id = jobData.id || nanoid();
+      const query = `
+        INSERT INTO media_conversion_jobs (
+          id, media_file_id, source_format, target_format, status,
+          options, metadata, batch_id, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const params = [
+        id,
+        jobData.media_file_id,
+        jobData.source_format,
+        jobData.target_format,
+        jobData.status || 'pending',
+        JSON.stringify(jobData.options || {}),
+        JSON.stringify(jobData.metadata || {}),
+        jobData.batch_id || null,
+        jobData.created_by || null
+      ];
+
+      await db.query(query, params);
+      logInfo('Document conversion job created', {
+        id,
+        media_file_id: jobData.media_file_id,
+        target_format: jobData.target_format
+      });
+
+      return id;
+    } catch (error) {
+      logError(error, { context: 'databaseService.createConversionJob', media_file_id: jobData?.media_file_id });
+      throw error;
+    }
+  }
+
+  async updateConversionJob(jobId, updates = {}) {
+    try {
+      if (!this.isAvailable()) {
+        return false;
+      }
+
+      const fields = [];
+      const params = [];
+
+      const addField = (column, value, transform) => {
+        fields.push(`${column} = ?`);
+        params.push(transform ? transform(value) : value);
+      };
+
+      if (typeof updates.status === 'string') {
+        addField('status', updates.status);
+      }
+
+      if (typeof updates.output_storage_key !== 'undefined') {
+        addField('output_storage_key', updates.output_storage_key || null);
+      }
+
+      if (typeof updates.output_file_size !== 'undefined') {
+        addField('output_file_size', updates.output_file_size || null);
+      }
+
+      if (typeof updates.output_mime_type !== 'undefined') {
+        addField('output_mime_type', updates.output_mime_type || null);
+      }
+
+      if (typeof updates.duration_ms !== 'undefined') {
+        addField('duration_ms', updates.duration_ms || null);
+      }
+
+      if (typeof updates.completed_at !== 'undefined') {
+        addField('completed_at', updates.completed_at || null);
+      }
+
+      if (typeof updates.batch_id !== 'undefined') {
+        addField('batch_id', updates.batch_id || null);
+      }
+
+      if (typeof updates.error_message !== 'undefined') {
+        addField('error_message', updates.error_message || null);
+      }
+
+      if (typeof updates.options !== 'undefined') {
+        addField('options', JSON.stringify(updates.options || {}));
+      }
+
+      if (typeof updates.metadata !== 'undefined') {
+        addField('metadata', JSON.stringify(updates.metadata || {}));
+      }
+
+      if (!fields.length) {
+        return false;
+      }
+
+      params.push(jobId);
+
+      const query = `
+        UPDATE media_conversion_jobs
+        SET ${fields.join(', ')}
+        WHERE id = ?
+      `;
+
+      await db.query(query, params);
+      logInfo('Document conversion job updated', { jobId });
+      return true;
+    } catch (error) {
+      logError(error, { context: 'databaseService.updateConversionJob', jobId });
+      throw error;
+    }
+  }
+
+  async getConversionJob(jobId) {
+    try {
+      if (!this.isAvailable()) {
+        return null;
+      }
+
+      const query = `
+        SELECT *
+        FROM media_conversion_jobs
+        WHERE id = ?
+      `;
+
+      const results = await db.query(query, [jobId]);
+      if (!results.length) {
+        return null;
+      }
+
+      return this.formatConversionJob(results[0]);
+    } catch (error) {
+      logError(error, { context: 'databaseService.getConversionJob', jobId });
+      throw error;
+    }
+  }
+
+  async listConversionJobs(mediaFileId, options = {}) {
+    try {
+      if (!this.isAvailable()) {
+        return [];
+      }
+
+      const { limit = 20, offset = 0, status = null } = options;
+      const params = [mediaFileId];
+      let query = `
+        SELECT *
+        FROM media_conversion_jobs
+        WHERE media_file_id = ?
+      `;
+
+      if (status) {
+        query += ' AND status = ?';
+        params.push(status);
+      }
+
+      query += `
+        ORDER BY created_at DESC
+        LIMIT ?
+        OFFSET ?
+      `;
+
+      params.push(Number(limit));
+      params.push(Number(offset));
+
+      const results = await db.query(query, params);
+      return results.map(row => this.formatConversionJob(row));
+    } catch (error) {
+      logError(error, { context: 'databaseService.listConversionJobs', mediaFileId });
+      throw error;
+    }
+  }
+
+
   // Analytics operations
   async recordMediaEvent(eventData) {
     try {
