@@ -5,6 +5,32 @@ All notable changes to the Dailey Media API will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-10-14
+
+### 🔧 Critical Fixes and Documentation Update
+
+This release addresses critical port configuration issues and adds comprehensive troubleshooting documentation.
+
+### Fixed
+- **Critical Port Configuration**: Changed default port from 4000 to 4100 to avoid conflicts
+- **Vite Proxy Issues**: Fixed frontend proxy configuration for Tailscale access
+- **PM2 Configuration**: Updated ecosystem.config.cjs with correct port settings
+- **CORS Configuration**: Added proper origins for development and Tailscale access
+- **File Deletion**: Implemented individual file deletion functionality in buckets
+
+### Added
+- **OCR Integration**: Added Tesseract.js for text extraction from images
+- **Comprehensive Documentation**:
+  - Created TROUBLESHOOTING.md with common issues and solutions
+  - Added PORT_CONFIGURATION.md for port management guidance
+  - Enhanced README.md with configuration details
+  - Updated .env.example with critical port information
+
+### Changed
+- **Port Configuration**: All services now use port 4100 instead of 4000
+- **Package.json Scripts**: Added helpful scripts for debugging and health checks
+- **Environment Variables**: Updated defaults to prevent common configuration issues
+
 ## [1.0.0] - 2025-10-14
 
 ### 🎉 Major Release: Production-Ready Media Storage Platform

@@ -17,6 +17,7 @@
 - **Universal File Support**: Images, videos, audio, documents, archives, and any file type
 - **Bucket Organization**: Public/private buckets with nested folder support
 - **Smart Processing**: Automatic thumbnails, metadata extraction, and categorization
+- **Document Intelligence**: Tesseract-powered OCR with searchable PDFs and confidence scoring
 - **Content Serving**: Streaming, caching, and CDN-ready file delivery
 - **Public Links**: Time-limited access URLs for secure sharing
 
@@ -41,6 +42,71 @@ This API is designed as a standalone microservice that can be consumed by:
 - **Castingly** - Actor headshots and reels
 - **Dailey HR** - Profile images and ID scans
 
+## 🔧 Configuration
+
+### Port Configuration
+**IMPORTANT**: The application uses the following ports:
+- **Backend API**: Port `4100` (not 4000, which may conflict with other services)
+- **Frontend Dev Server**: Port `5174` (Vite development server)
+- **Backend Health**: Accessible at `http://localhost:4100/health`
+- **Frontend**: Accessible at `http://localhost:5174` or `http://YOUR_TAILSCALE_IP:5174`
+
+### Environment Variables
+Create a `.env` file in the root directory:
+```bash
+# Backend Configuration
+PORT=4100  # MUST be 4100 to avoid conflicts
+HOST=0.0.0.0
+NODE_ENV=development
+
+# Storage
+STORAGE_TYPE=local
+
+# Development
+DISABLE_AUTH=true
+LOG_LEVEL=debug
+
+# CORS (update with your IPs)
+CORS_ORIGINS=http://localhost:3005,http://localhost:3000,http://localhost:5174,http://YOUR_TAILSCALE_IP:5174
+```
+
+### PM2 Configuration
+The `ecosystem.config.cjs` file manages the PM2 processes:
+- Backend runs on port `4100` (defined in ecosystem config)
+- Frontend proxies API calls to backend
+- Use `pm2 start ecosystem.config.cjs` to start both services
+
+## 🚀 Quick Start
+
+### Installation
+```bash
+# Install dependencies
+npm install
+cd web && npm install
+
+# Copy environment template
+cp .env.example .env
+
+# Start with PM2
+pm2 start ecosystem.config.cjs
+
+# Or start individually
+pm2 start ecosystem.config.cjs --only dmapi-backend
+pm2 start ecosystem.config.cjs --only dmapi-frontend
+```
+
+### Verify Services
+```bash
+# Check backend health
+curl http://localhost:4100/health
+
+# Check frontend
+curl http://localhost:5174/
+
+# Test API proxy
+curl http://localhost:5174/api/upload/formats
+```
+
 ## 📡 API Endpoints
 
 ### Health & Status
@@ -55,6 +121,12 @@ This API is designed as a standalone microservice that can be consumed by:
 - `GET /api/media` - List media with filtering
 - `DELETE /api/media/:id` - Delete media files
 - `GET /api/media/:id/transform` - Dynamic image transformation
+
+### Text Extraction (OCR)
+- `POST /api/ocr/:mediaFileId/extract` - Run OCR on a media file with optional language/output overrides
+- `GET /api/ocr/:mediaFileId/results` - List stored OCR runs for a media file
+- `GET /api/ocr/:mediaFileId/results/latest` - Retrieve the most recent OCR payload
+- `GET /api/ocr/results/:resultId/pdf` - Fetch signed access details for the generated searchable PDF
 
 ### File Serving
 - `GET /api/serve/files/:userId/:bucketId/*` - Serve files with nested path support
@@ -88,17 +160,29 @@ This API is designed as a standalone microservice that can be consumed by:
    npm run dev
    ```
    
-   **Option B: PM2 Process Manager (recommended for development)**
-   ```bash
-   npm run pm2:start    # Start all services
-   npm run pm2:status   # Check status
-   npm run pm2:logs     # View logs
-   npm run pm2:stop     # Stop all services
-   ```
+**Option B: PM2 Process Manager (recommended for development)**
+```bash
+npm run pm2:start    # Start all services
+npm run pm2:status   # Check status
+npm run pm2:logs     # View logs
+npm run pm2:stop     # Stop all services
+```
 
-The API will be available at `http://localhost:4100` (Backend) and `http://localhost:5174` (Frontend)
+#### PM2 Startup on Boot
 
-**For Tailscale/Network Access**: Use `http://100.105.97.19:4100` (Backend)
+To make sure the API and companion services restart automatically after a reboot, run the helper script and follow the printed instructions:
+
+```bash
+./scripts/pm2-ensure-startup.sh
+```
+
+The script starts the processes defined in `ecosystem.config.cjs`, saves the PM2 process list, and outputs the `sudo pm2 startup` command you need to execute once. After running that command, PM2 will resurrect the saved processes on every server restart. Check the status with `npx pm2 status` whenever you need to confirm the processes are registered.
+
+> Note: The `dmapi-frontend` PM2 app proxies `/api` to the URL defined in `VITE_MEDIA_API_URL` (defaults to `http://localhost:4000`). The API runs under the `dmapi-backend` PM2 process, so both process names start with `dmapi`. If you change the backend port, update that environment variable so the proxy keeps working.
+
+The API will be available at `http://localhost:4000` (Backend) and `http://localhost:5174` (Frontend)
+
+**For Tailscale/Network Access**: Use `http://100.105.97.19:4000` (Backend)
 
 ## 🏃‍♂️ Quick Start
 
@@ -106,14 +190,14 @@ Test the API endpoints:
 
 ```bash
 # Health check
-curl http://localhost:4100/health
+curl http://localhost:4000/health
 
 # API information  
-curl http://localhost:4100/api
+curl http://localhost:4000/api
 
 # Upload a file
 ACCESS_TOKEN="paste-token-here"
-curl -X POST http://localhost:4100/api/upload \
+curl -X POST http://localhost:4000/api/upload \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -F "file=@image.jpg"
 ```
@@ -162,7 +246,7 @@ curl -X POST http://localhost:3002/auth/login \
 
 # Use the token with the Media API
 ACCESS_TOKEN="paste-token-here"
-curl -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:4100/api/media
+curl -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:4000/api/media
 ```
 
 ## 🔑 API Keys
@@ -231,12 +315,18 @@ If you see `net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin` errors:
 2. **File Permissions**: Check that files are accessible in the storage directory
 3. **URL Encoding**: Ensure special characters in file paths are properly encoded
 
+#### Frontend Proxy ECONNREFUSED
+1. **Confirm Backend Port**: The API listens on `PORT` (default `4000`). Make sure the PM2 `dmapi-backend` process is running and not reporting `EADDRINUSE` in `logs/dmapi-backend-error.log`.
+2. **Update Proxy Target**: Set `VITE_MEDIA_API_URL` to match the API URL (for local dev: `http://localhost:4000`) so the Vite dev server proxies correctly.
+3. **Avoid Duplicate Servers**: Stop any `npm run dev` instances before starting PM2 to prevent port conflicts on the API port.
+
 ### Environment Variables
 Key environment variables for proper operation:
 ```env
 NODE_ENV=development
-PORT=4100
+PORT=4000
 HOST=0.0.0.0
+VITE_MEDIA_API_URL=http://localhost:4000
 
 # Storage Configuration
 STORAGE_TYPE=local

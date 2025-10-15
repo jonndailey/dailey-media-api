@@ -17,6 +17,7 @@ import bucketsRoutes from './routes/buckets.js';
 import apiKeyRoutes from './routes/apiKeys.js';
 import analyticsRoutes from './routes/analytics.js';
 import serveRoutes from './routes/serve.js';
+import ocrRoutes from './routes/ocr.js';
 import { errorHandler } from './middleware/error.js';
 import { requestLogger } from './middleware/logger.js';
 import databaseService from './services/databaseService.js';
@@ -96,6 +97,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/buckets', bucketsRoutes); // Bucket/folder management
 app.use('/api/analytics', analyticsRoutes); // Analytics and stats
 app.use('/api/serve', serveRoutes);     // File serving and public links
+app.use('/api/ocr', ocrRoutes);         // OCR and text extraction
 
 // API info endpoint
 app.get('/api', (req, res) => {

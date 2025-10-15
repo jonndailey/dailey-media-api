@@ -483,6 +483,161 @@ class DatabaseService {
     }
   }
 
+  formatOcrResult(row) {
+    if (!row) {
+      return null;
+    }
+
+    return {
+      ...row,
+      languages: this.safeParseJson(row.languages, []),
+      confidence_summary: this.safeParseJson(row.confidence_summary, {}),
+      request_options: this.safeParseJson(row.request_options, {}),
+      metadata: this.safeParseJson(row.metadata, {}),
+      average_confidence: typeof row.average_confidence === 'number'
+        ? Number(row.average_confidence)
+        : (row.average_confidence ? Number(row.average_confidence) : null)
+    };
+  }
+
+  safeParseJson(value, fallback) {
+    if (!value) {
+      return fallback;
+    }
+
+    try {
+      if (typeof value === 'object') {
+        return value;
+      }
+      return JSON.parse(value);
+    } catch (error) {
+      logError(error, { context: 'databaseService.safeParseJson' });
+      return fallback;
+    }
+  }
+
+  async saveOcrResult(resultData) {
+    try {
+      if (!this.isAvailable()) {
+        return null;
+      }
+
+      const id = nanoid();
+      const query = `
+        INSERT INTO media_ocr_results (
+          id, media_file_id, languages, text, average_confidence,
+          confidence_summary, word_count, line_count, pdf_storage_key,
+          request_options, metadata, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const params = [
+        id,
+        resultData.media_file_id,
+        JSON.stringify(resultData.languages || []),
+        resultData.text || null,
+        typeof resultData.average_confidence === 'number'
+          ? Number(resultData.average_confidence.toFixed(2))
+          : null,
+        JSON.stringify(resultData.confidence_summary || {}),
+        resultData.word_count ?? 0,
+        resultData.line_count ?? 0,
+        resultData.pdf_storage_key || null,
+        JSON.stringify(resultData.request_options || {}),
+        JSON.stringify(resultData.metadata || {}),
+        resultData.created_by || null
+      ];
+
+      await db.query(query, params);
+      logInfo('OCR result saved', {
+        id,
+        media_file_id: resultData.media_file_id,
+        pdf_storage_key: resultData.pdf_storage_key || null
+      });
+
+      return id;
+    } catch (error) {
+      logError(error, { context: 'databaseService.saveOcrResult', media_file_id: resultData?.media_file_id });
+      throw error;
+    }
+  }
+
+  async getOcrResult(resultId) {
+    try {
+      if (!this.isAvailable()) {
+        return null;
+      }
+
+      const query = `
+        SELECT *
+        FROM media_ocr_results
+        WHERE id = ?
+      `;
+
+      const results = await db.query(query, [resultId]);
+      if (!results.length) {
+        return null;
+      }
+
+      return this.formatOcrResult(results[0]);
+    } catch (error) {
+      logError(error, { context: 'databaseService.getOcrResult', resultId });
+      throw error;
+    }
+  }
+
+  async getLatestOcrResult(mediaFileId) {
+    try {
+      if (!this.isAvailable()) {
+        return null;
+      }
+
+      const query = `
+        SELECT *
+        FROM media_ocr_results
+        WHERE media_file_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+
+      const results = await db.query(query, [mediaFileId]);
+      if (!results.length) {
+        return null;
+      }
+
+      return this.formatOcrResult(results[0]);
+    } catch (error) {
+      logError(error, { context: 'databaseService.getLatestOcrResult', mediaFileId });
+      throw error;
+    }
+  }
+
+  async listOcrResults(mediaFileId, options = {}) {
+    try {
+      if (!this.isAvailable()) {
+        return [];
+      }
+
+      const limit = Math.min(options.limit || 20, 100);
+      const offset = Math.max(options.offset || 0, 0);
+
+      const query = `
+        SELECT *
+        FROM media_ocr_results
+        WHERE media_file_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        OFFSET ?
+      `;
+
+      const results = await db.query(query, [mediaFileId, limit, offset]);
+      return results.map(row => this.formatOcrResult(row));
+    } catch (error) {
+      logError(error, { context: 'databaseService.listOcrResults', mediaFileId });
+      throw error;
+    }
+  }
+
   // Analytics operations
   async recordMediaEvent(eventData) {
     try {

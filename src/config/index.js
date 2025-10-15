@@ -4,7 +4,7 @@ dotenv.config();
 
 export const config = {
   // Server
-  port: parseInt(process.env.PORT || '4000'),
+  port: parseInt(process.env.PORT || '4100'), // Default to 4100 to avoid conflicts
   host: process.env.HOST || '0.0.0.0',
   nodeEnv: process.env.NODE_ENV || 'development',
 

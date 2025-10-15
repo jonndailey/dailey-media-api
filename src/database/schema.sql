@@ -212,6 +212,28 @@ CREATE TABLE IF NOT EXISTS media_variants (
     UNIQUE KEY unique_variant (media_file_id, variant_type, width, height, format)
 );
 
+-- OCR results table
+CREATE TABLE IF NOT EXISTS media_ocr_results (
+    id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    media_file_id VARCHAR(36) NOT NULL,
+    languages JSON NOT NULL,
+    text LONGTEXT,
+    average_confidence DECIMAL(5,2),
+    confidence_summary JSON,
+    word_count INT DEFAULT 0,
+    line_count INT DEFAULT 0,
+    pdf_storage_key VARCHAR(500),
+    request_options JSON,
+    metadata JSON,
+    created_by VARCHAR(36),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (media_file_id) REFERENCES media_files(id) ON DELETE CASCADE,
+    
+    INDEX idx_media_ocr_media (media_file_id),
+    FULLTEXT idx_media_ocr_text (text)
+);
+
 -- Media tags (many-to-many relationship)
 CREATE TABLE IF NOT EXISTS media_tags (
     id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),

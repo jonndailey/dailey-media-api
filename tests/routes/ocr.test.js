@@ -1,0 +1,231 @@
+import express from 'express';
+import request from 'supertest';
+import {
+  jest,
+  describe,
+  beforeAll,
+  beforeEach,
+  it,
+  expect
+} from '@jest/globals';
+
+const AUTH_HEADER = ['Authorization', 'Bearer test-token'];
+const TEST_USER = 'user-123';
+
+let router;
+let databaseServiceMock;
+let ocrServiceMock;
+let storageServiceMock;
+
+const createApp = () => {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/ocr', router);
+  return app;
+};
+
+beforeAll(async () => {
+  jest.unstable_mockModule('../../src/middleware/dailey-auth.js', () => {
+    const authenticateToken = (req, res, next) => {
+      if (req.headers.authorization === AUTH_HEADER[1]) {
+        req.userId = TEST_USER;
+        req.userRoles = ['user', 'api.read', 'api.write'];
+        return next();
+      }
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    };
+
+    return {
+      authenticateToken,
+      requireScope: () => (req, res, next) => {
+        if (!req.userRoles?.length) {
+          return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+        }
+        return next();
+      },
+      requireRole: () => (req, res, next) => next(),
+      requireAnyRole: () => (req, res, next) => next(),
+      optionalAuth: (req, res, next) => next()
+    };
+  });
+
+  databaseServiceMock = {
+    isAvailable: jest.fn().mockReturnValue(true),
+    getMediaFile: jest.fn(),
+    getLatestOcrResult: jest.fn(),
+    listOcrResults: jest.fn(),
+    getOcrResult: jest.fn()
+  };
+
+  ocrServiceMock = {
+    performOcr: jest.fn()
+  };
+
+  storageServiceMock = {
+    getAccessDetails: jest.fn().mockResolvedValue({
+      access: 'private',
+      publicUrl: null,
+      signedUrl: 'signed-url'
+    })
+  };
+
+  jest.unstable_mockModule('../../src/services/databaseService.js', () => ({
+    default: databaseServiceMock
+  }));
+
+  jest.unstable_mockModule('../../src/services/ocrService.js', () => ({
+    default: ocrServiceMock
+  }));
+
+  jest.unstable_mockModule('../../src/services/storageService.js', () => ({
+    default: storageServiceMock
+  }));
+
+  ({ default: router } = await import('../../src/routes/ocr.js'));
+});
+
+beforeEach(() => {
+  jest.resetAllMocks();
+
+  databaseServiceMock.isAvailable.mockReturnValue(true);
+  databaseServiceMock.getMediaFile.mockResolvedValue({
+    id: 'media-1',
+    user_id: TEST_USER,
+    is_public: false
+  });
+  databaseServiceMock.getLatestOcrResult.mockResolvedValue(null);
+  databaseServiceMock.listOcrResults.mockResolvedValue([]);
+  databaseServiceMock.getOcrResult.mockResolvedValue(null);
+
+  ocrServiceMock.performOcr.mockReset();
+
+  storageServiceMock.getAccessDetails.mockResolvedValue({
+    access: 'private',
+    publicUrl: null,
+    signedUrl: 'signed-url'
+  });
+});
+
+describe('POST /api/ocr/:mediaFileId/extract', () => {
+  it('returns cached result when available without reprocessing', async () => {
+    databaseServiceMock.getLatestOcrResult.mockResolvedValue({
+      id: 'ocr-1',
+      text: 'cached'
+    });
+
+    const app = createApp();
+    const response = await request(app)
+      .post('/api/ocr/media-1/extract')
+      .set(...AUTH_HEADER)
+      .send({})
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.cached).toBe(true);
+    expect(response.body.result.id).toBe('ocr-1');
+    expect(ocrServiceMock.performOcr).not.toHaveBeenCalled();
+  });
+
+  it('invokes OCR service when force flag is set', async () => {
+    databaseServiceMock.getLatestOcrResult.mockResolvedValueOnce({
+      id: 'ocr-1',
+      text: 'stale'
+    });
+    ocrServiceMock.performOcr.mockResolvedValue({
+      mediaFileId: 'media-1',
+      text: 'fresh result'
+    });
+
+    const app = createApp();
+    const response = await request(app)
+      .post('/api/ocr/media-1/extract')
+      .set(...AUTH_HEADER)
+      .send({ force: true, languages: ['eng', 'spa'] })
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.cached).toBe(false);
+    expect(response.body.result.text).toBe('fresh result');
+    expect(ocrServiceMock.performOcr).toHaveBeenCalledWith('media-1', expect.objectContaining({
+      languages: ['eng', 'spa'],
+      persist: true,
+      requestingUserId: TEST_USER
+    }));
+  });
+});
+
+describe('GET /api/ocr/:mediaFileId/results', () => {
+  it('returns paginated OCR results', async () => {
+    databaseServiceMock.listOcrResults.mockResolvedValue([
+      { id: 'ocr-1', text: 'result-1' },
+      { id: 'ocr-2', text: 'result-2' }
+    ]);
+
+    const app = createApp();
+    const response = await request(app)
+      .get('/api/ocr/media-1/results')
+      .set(...AUTH_HEADER)
+      .query({ limit: 2, offset: 0 })
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.results).toHaveLength(2);
+    expect(databaseServiceMock.listOcrResults).toHaveBeenCalledWith('media-1', {
+      limit: 2,
+      offset: 0
+    });
+  });
+});
+
+describe('GET /api/ocr/:mediaFileId/results/latest', () => {
+  it('returns 404 when no OCR results exist', async () => {
+    databaseServiceMock.getLatestOcrResult.mockResolvedValue(null);
+
+    const app = createApp();
+    const response = await request(app)
+      .get('/api/ocr/media-1/results/latest')
+      .set(...AUTH_HEADER)
+      .expect(404);
+
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBe('No OCR results found');
+  });
+
+  it('returns latest OCR payload when available', async () => {
+    databaseServiceMock.getLatestOcrResult.mockResolvedValue({
+      id: 'ocr-latest',
+      text: 'latest'
+    });
+
+    const app = createApp();
+    const response = await request(app)
+      .get('/api/ocr/media-1/results/latest')
+      .set(...AUTH_HEADER)
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.result.id).toBe('ocr-latest');
+  });
+});
+
+describe('GET /api/ocr/results/:resultId/pdf', () => {
+  it('returns signed URL for stored searchable PDF', async () => {
+    databaseServiceMock.getOcrResult.mockResolvedValue({
+      id: 'ocr-1',
+      media_file_id: 'media-1',
+      pdf_storage_key: 'ocr/media-1/result.pdf'
+    });
+
+    const app = createApp();
+    const response = await request(app)
+      .get('/api/ocr/results/ocr-1/pdf')
+      .set(...AUTH_HEADER)
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.pdf.storageKey).toBe('ocr/media-1/result.pdf');
+    expect(storageServiceMock.getAccessDetails).toHaveBeenCalledWith('ocr/media-1/result.pdf', {
+      access: 'private'
+    });
+  });
+});
