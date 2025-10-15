@@ -20,6 +20,18 @@ function canAccessFile(req, file) {
   return isOwner || isAdmin;
 }
 
+function attachSuggestions(result) {
+  if (!result || typeof result !== 'object') {
+    return result;
+  }
+
+  const suggestions = result.metadata?.receiptSuggestions || null;
+  return {
+    ...result,
+    suggestions: suggestions || null
+  };
+}
+
 router.post('/:mediaFileId/extract', authenticateToken, requireScope('read'), async (req, res) => {
   try {
     const { mediaFileId } = req.params;
@@ -61,7 +73,7 @@ router.post('/:mediaFileId/extract', authenticateToken, requireScope('read'), as
         return res.json({
           success: true,
           cached: true,
-          result: existing
+          result: attachSuggestions(existing)
         });
       }
     }
@@ -76,7 +88,10 @@ router.post('/:mediaFileId/extract', authenticateToken, requireScope('read'), as
     res.json({
       success: true,
       cached: false,
-      result
+      result: {
+        ...result,
+        suggestions: result.suggestions || null
+      }
     });
   } catch (error) {
     logError(error, {
@@ -126,7 +141,7 @@ router.get('/:mediaFileId/results', authenticateToken, requireScope('read'), asy
 
     res.json({
       success: true,
-      results,
+      results: results.map(attachSuggestions),
       pagination: {
         limit: Number(limit),
         offset: Number(offset),
@@ -181,7 +196,7 @@ router.get('/:mediaFileId/results/latest', authenticateToken, requireScope('read
 
     res.json({
       success: true,
-      result
+      result: attachSuggestions(result)
     });
   } catch (error) {
     logError(error, {

@@ -41,6 +41,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.882.0",
     "@aws-sdk/s3-request-presigner": "^3.882.0",
+    "@napi-rs/canvas": "^0.1.80",
     "bcrypt": "^5.1.1",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
@@ -59,6 +60,7 @@
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.11.0",
     "nanoid": "^5.0.7",
+    "pdfjs-dist": "^3.11.174",
     "pm2": "^6.0.13",
     "qrcode": "^1.5.4",
     "redis": "^5.8.2",

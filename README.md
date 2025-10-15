@@ -17,7 +17,7 @@
 - **Universal File Support**: Images, videos, audio, documents, archives, and any file type
 - **Bucket Organization**: Public/private buckets with nested folder support
 - **Smart Processing**: Automatic thumbnails, metadata extraction, and categorization
-- **Document Intelligence**: Tesseract-powered OCR with searchable PDFs and confidence scoring
+- **Document Intelligence**: Tesseract-powered OCR with PDF rasterization, searchable text, and confidence scoring
 - **Content Serving**: Streaming, caching, and CDN-ready file delivery
 - **Public Links**: Time-limited access URLs for secure sharing
 
@@ -128,6 +128,8 @@ curl http://localhost:5174/api/upload/formats
 - `GET /api/ocr/:mediaFileId/results/latest` - Retrieve the most recent OCR payload
 - `GET /api/ocr/results/:resultId/pdf` - Fetch signed access details for the generated searchable PDF
 
+> PDFs are rasterized server-side (first page only) before OCR. If rendering fails because of a malformed/encrypted document, the API responds with `422` so clients can retry or alert the user.
+
 ### File Serving
 - `GET /api/serve/files/:userId/:bucketId/*` - Serve files with nested path support
 - `GET /api/serve/files/:id/content` - Serve file by ID (authenticated)
@@ -153,8 +155,20 @@ curl http://localhost:5174/api/upload/formats
    # Edit .env with your configuration
    ```
 
+4. **Initialize the MySQL database**
+   ```bash
+   # Add your DATABASE_URL credentials in .env first
+   npm run migrate
+   ```
+   The migration script will create all tables and seed default records (system app, dev users). If you rely on the built-in `DISABLE_AUTH=true` fallback, ensure the `users` table contains the `test-user-id` row:
+   ```sql
+   INSERT INTO users (id, external_id, email, display_name)
+   VALUES ('test-user-id', 'test-user-id', 'test@example.com', 'Test User')
+   ON DUPLICATE KEY UPDATE email = VALUES(email);
+   ```
+
 4. **Start development server**
-   
+
    **Option A: Standard Development (using nodemon)**
    ```bash
    npm run dev

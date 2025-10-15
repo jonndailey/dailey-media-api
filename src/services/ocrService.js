@@ -4,6 +4,8 @@ import storageService from './storageService.js';
 import databaseService from './databaseService.js';
 import fileService from './fileService.js';
 import { logInfo, logError, logWarning } from '../middleware/logger.js';
+import { renderPdfFirstPage } from '../utils/pdfUtils.js';
+import { parseReceiptSuggestions } from '../utils/receiptParser.js';
 
 const DEFAULT_LANGUAGES = ['eng'];
 const WORKER_CACHE = new Map();
@@ -38,27 +40,35 @@ async function getWorker(languageKey) {
     return WORKER_CACHE.get(languageKey);
   }
 
-  const worker = await createWorker({
-    logger: message => {
-      if (message.status === 'recognizing text') {
-        logInfo('OCR progress', {
-          status: message.status,
-          progress: Number((message.progress * 100).toFixed(2)),
+  const worker = await createWorker(
+    languageKey || DEFAULT_LANGUAGES.join('+'),
+    undefined,
+    {
+      logger: message => {
+        if (message.status === 'recognizing text') {
+          logInfo('OCR progress', {
+            status: message.status,
+            progress: Number((message.progress * 100).toFixed(2)),
+            languages: languageKey
+          });
+        }
+      },
+      errorHandler: error => {
+        logError(new Error(error?.message || String(error)), {
+          context: 'ocr.worker',
           languages: languageKey
         });
       }
     }
-  });
+  );
 
-  await worker.load();
-  await worker.loadLanguage(languageKey);
-  await worker.initialize(languageKey);
+  await worker.reinitialize(languageKey);
+
   WORKER_CACHE.set(languageKey, worker);
 
   logInfo('OCR worker created', { languages: languageKey });
   return worker;
 }
-
 function buildConfidenceSummary(words = []) {
   if (!words.length) {
     return {
@@ -172,14 +182,57 @@ class OcrService {
     const languageKey = getLanguageKey(languages.length ? languages : DEFAULT_LANGUAGES);
     const worker = await getWorker(languageKey);
 
-    const buffer = await storageService.getFileBuffer(mediaFile.storage_key);
+    const originalBuffer = await storageService.getFileBuffer(mediaFile.storage_key);
+    let processingBuffer = originalBuffer;
+    let derivedMetadata = {};
+
+    if (typeInfo.extension === 'pdf') {
+      try {
+        const rendered = await renderPdfFirstPage(originalBuffer, options.pdfScale || 2);
+        processingBuffer = rendered.buffer;
+        derivedMetadata = {
+          ...derivedMetadata,
+          renderedWidth: rendered.width,
+          renderedHeight: rendered.height,
+          renderedScale: options.pdfScale || 2
+        };
+      } catch (error) {
+        logError(error, {
+          context: 'ocrService.renderPdf',
+          mediaFileId
+        });
+
+        const responseError = new Error('Failed to render PDF for OCR processing');
+        responseError.statusCode = 422;
+        throw responseError;
+      }
+    }
 
     const recognitionOptions = {
       ...(options.tesseract || {})
     };
 
     const start = Date.now();
-    const { data } = await worker.recognize(buffer, recognitionOptions);
+    let recognizeResult;
+    try {
+      recognizeResult = await worker.recognize(processingBuffer, recognitionOptions);
+    } catch (error) {
+      logError(error, {
+        context: 'ocrService.recognize',
+        mediaFileId,
+        languages: languageKey
+      });
+
+      const responseError = new Error(
+        error?.message?.includes('Pdf reading is not supported')
+          ? 'PDF OCR is not supported by the current Tesseract build'
+          : 'Failed to process OCR request'
+      );
+      responseError.statusCode = error?.message?.includes('Pdf reading is not supported') ? 422 : 500;
+      throw responseError;
+    }
+
+    const { data } = recognizeResult;
     const durationMs = Date.now() - start;
 
     const plainText = (data.text || '').trim();
@@ -189,29 +242,37 @@ class OcrService {
 
     let pdfUpload = null;
     if (output.searchablePDF) {
-      try {
-        const pdfResult = await worker.getPDF(`dmapi-ocr-${mediaFileId}`);
-        const pdfBuffer = Buffer.from(pdfResult.data);
-        const pdfKey = `ocr/${mediaFileId}/searchable-${Date.now()}-${nanoid(8)}.pdf`;
+      if (typeof worker.getPDF === 'function') {
+        try {
+          const pdfResult = await worker.getPDF(`dmapi-ocr-${mediaFileId}`);
+          const pdfBuffer = Buffer.from(pdfResult.data);
+          const pdfKey = `ocr/${mediaFileId}/searchable-${Date.now()}-${nanoid(8)}.pdf`;
 
-        pdfUpload = await storageService.uploadFile(
-          pdfBuffer,
-          pdfKey,
-          'application/pdf',
-          {
-            source_media_id: mediaFileId,
-            type: 'ocr.searchable-pdf',
-            languages: languages.join(',')
-          },
-          { access: mediaFile.is_public ? 'public' : 'private' }
-        );
-      } catch (error) {
-        logError(error, {
-          context: 'ocrService.generatePdf',
+          pdfUpload = await storageService.uploadFile(
+            pdfBuffer,
+            pdfKey,
+            'application/pdf',
+            {
+              source_media_id: mediaFileId,
+              type: 'ocr.searchable-pdf',
+              languages: languages.join(',')
+            },
+            { access: mediaFile.is_public ? 'public' : 'private' }
+          );
+        } catch (error) {
+          logError(error, {
+            context: 'ocrService.generatePdf',
+            mediaFileId
+          });
+        }
+      } else {
+        logWarning('Searchable PDF generation not supported by current Tesseract build', {
           mediaFileId
         });
       }
     }
+
+    const suggestions = parseReceiptSuggestions(plainText);
 
     const response = {
       mediaFileId,
@@ -233,7 +294,8 @@ class OcrService {
         blocks: Array.isArray(data.blocks) ? data.blocks.length : 0,
         paragraphs: Array.isArray(data.paragraphs) ? data.paragraphs.length : 0,
         lines: lines.length,
-        words: words.length
+        words: words.length,
+        ...derivedMetadata
       },
       output: {
         plainText: output.plainText !== false,
@@ -241,7 +303,8 @@ class OcrService {
         hocr: Boolean(output.hocr),
         tsv: Boolean(output.tsv),
         searchablePDF: Boolean(output.searchablePDF)
-      }
+      },
+      suggestions
     };
 
     if (response.output.confidence) {
@@ -284,7 +347,9 @@ class OcrService {
             scriptConfidence: response.metadata.scriptConfidence,
             orientation: response.metadata.orientation,
             blocks: response.metadata.blocks,
-            paragraphs: response.metadata.paragraphs
+            paragraphs: response.metadata.paragraphs,
+            ...derivedMetadata,
+            receiptSuggestions: suggestions
           },
           created_by: requestingUserId || mediaFile.user_id
         });

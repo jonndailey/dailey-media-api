@@ -80,8 +80,18 @@ class MigrationManager {
       // Split the schema into individual statements
       const statements = schemaContent
         .split(';')
-        .map(stmt => stmt.trim())
-        .filter(stmt => stmt && !stmt.startsWith('--'));
+        .map(stmt => {
+          const cleaned = stmt
+            .split('\n')
+            .map(line => {
+              const trimmed = line.trim();
+              return trimmed.startsWith('--') ? '' : line;
+            })
+            .join('\n')
+            .trim();
+          return cleaned;
+        })
+        .filter(stmt => stmt.length > 0);
 
       // Execute each statement
       for (const statement of statements) {

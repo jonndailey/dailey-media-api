@@ -110,7 +110,14 @@ describe('POST /api/ocr/:mediaFileId/extract', () => {
   it('returns cached result when available without reprocessing', async () => {
     databaseServiceMock.getLatestOcrResult.mockResolvedValue({
       id: 'ocr-1',
-      text: 'cached'
+      text: 'cached',
+      metadata: {
+        receiptSuggestions: {
+          total: '45.67',
+          date: '2025-10-15',
+          merchant: 'Coffee Spot'
+        }
+      }
     });
 
     const app = createApp();
@@ -123,6 +130,11 @@ describe('POST /api/ocr/:mediaFileId/extract', () => {
     expect(response.body.success).toBe(true);
     expect(response.body.cached).toBe(true);
     expect(response.body.result.id).toBe('ocr-1');
+    expect(response.body.result.suggestions).toEqual({
+      total: '45.67',
+      date: '2025-10-15',
+      merchant: 'Coffee Spot'
+    });
     expect(ocrServiceMock.performOcr).not.toHaveBeenCalled();
   });
 
@@ -133,7 +145,12 @@ describe('POST /api/ocr/:mediaFileId/extract', () => {
     });
     ocrServiceMock.performOcr.mockResolvedValue({
       mediaFileId: 'media-1',
-      text: 'fresh result'
+      text: 'fresh result',
+      suggestions: {
+        total: '12.34',
+        date: null,
+        merchant: 'Coffee World'
+      }
     });
 
     const app = createApp();
@@ -146,6 +163,11 @@ describe('POST /api/ocr/:mediaFileId/extract', () => {
     expect(response.body.success).toBe(true);
     expect(response.body.cached).toBe(false);
     expect(response.body.result.text).toBe('fresh result');
+    expect(response.body.result.suggestions).toEqual({
+      total: '12.34',
+      date: null,
+      merchant: 'Coffee World'
+    });
     expect(ocrServiceMock.performOcr).toHaveBeenCalledWith('media-1', expect.objectContaining({
       languages: ['eng', 'spa'],
       persist: true,
@@ -157,8 +179,8 @@ describe('POST /api/ocr/:mediaFileId/extract', () => {
 describe('GET /api/ocr/:mediaFileId/results', () => {
   it('returns paginated OCR results', async () => {
     databaseServiceMock.listOcrResults.mockResolvedValue([
-      { id: 'ocr-1', text: 'result-1' },
-      { id: 'ocr-2', text: 'result-2' }
+      { id: 'ocr-1', text: 'result-1', metadata: { receiptSuggestions: { total: '10.00', date: null, merchant: null } } },
+      { id: 'ocr-2', text: 'result-2', metadata: { receiptSuggestions: null } }
     ]);
 
     const app = createApp();
@@ -170,6 +192,7 @@ describe('GET /api/ocr/:mediaFileId/results', () => {
 
     expect(response.body.success).toBe(true);
     expect(response.body.results).toHaveLength(2);
+    expect(response.body.results[0].suggestions).toEqual({ total: '10.00', date: null, merchant: null });
     expect(databaseServiceMock.listOcrResults).toHaveBeenCalledWith('media-1', {
       limit: 2,
       offset: 0
@@ -194,7 +217,10 @@ describe('GET /api/ocr/:mediaFileId/results/latest', () => {
   it('returns latest OCR payload when available', async () => {
     databaseServiceMock.getLatestOcrResult.mockResolvedValue({
       id: 'ocr-latest',
-      text: 'latest'
+      text: 'latest',
+      metadata: {
+        receiptSuggestions: { total: null, date: '2025-10-15', merchant: 'Cafe' }
+      }
     });
 
     const app = createApp();
@@ -205,6 +231,7 @@ describe('GET /api/ocr/:mediaFileId/results/latest', () => {
 
     expect(response.body.success).toBe(true);
     expect(response.body.result.id).toBe('ocr-latest');
+    expect(response.body.result.suggestions).toEqual({ total: null, date: '2025-10-15', merchant: 'Cafe' });
   });
 });
 

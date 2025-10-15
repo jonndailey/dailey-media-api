@@ -16,19 +16,19 @@ class DatabaseConnection {
       }
 
       const url = new URL(config.databaseUrl);
-      
+      const username = decodeURIComponent(url.username || '');
+      const password = decodeURIComponent(url.password || '');
+
       this.pool = mysql.createPool({
         host: url.hostname,
         port: url.port || 3306,
-        user: url.username,
-        password: url.password,
+        user: username,
+        password,
         database: url.pathname.substring(1), // Remove leading slash
         waitForConnections: true,
         connectionLimit: 10,
         queueLimit: 0,
-        acquireTimeout: 60000,
-        timeout: 60000,
-        reconnect: true,
+        connectTimeout: 60000,
         charset: 'utf8mb4',
         timezone: '+00:00', // Store everything in UTC
         dateStrings: false,

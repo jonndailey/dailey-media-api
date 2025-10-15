@@ -75,6 +75,11 @@ Content-Type: application/json
       "storageKey": "ocr/media-123/searchable-1728938241-cec3a5.pdf",
       "signedUrl": "https://…",
       "access": "private"
+    },
+    "suggestions": {
+      "total": "45.67",
+      "date": "2025-10-15",
+      "merchant": "Coffee Spot"
     }
   }
 }
@@ -85,6 +90,8 @@ Content-Type: application/json
 - The first request for a new language triggers a language data download from Tesseract’s CDN; cache these files for production environments if outbound traffic is restricted.
 - PDF generation stores derivatives under `ocr/{mediaId}` using the same access policy (public/private) as the parent media item.
 - Results persist in the `media_ocr_results` table—run `npm run migrate` after pulling the update so the schema changes are applied.
+- Development mode relies on the stubbed auth user (`test-user-id`); seed that record in the `users` table if you run with `DISABLE_AUTH=true` to avoid foreign key errors during uploads.
+- PDFs are rasterized on the fly with `pdfjs-dist` + `@napi-rs/canvas`; only the first page is processed today and the engine will gracefully return `422` if rendering fails.
 
 ## Troubleshooting
 

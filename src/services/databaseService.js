@@ -40,7 +40,7 @@ class DatabaseService {
       }
 
       const id = nanoid();
-      const now = new Date().toISOString();
+      const now = new Date();
 
       const query = `
         INSERT INTO media_files (
