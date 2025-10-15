@@ -335,10 +335,207 @@ class DaileyMediaCLI {
     }
   }
 
+  async listVideoPresets(): Promise<void> {
+    if (!this.config.apiKey) {
+      console.log(chalk.red('✗ Please configure your API key first: dmedia config'));
+      return;
+    }
+
+    const spinner = ora('Fetching video presets...').start();
+
+    try {
+      const response = await this.api.listVideoPresets();
+      spinner.succeed(`Found ${response.presets.length} preset(s)`);
+
+      if (!response.presets.length) {
+        console.log(chalk.yellow('No video presets configured on the server.'));
+        return;
+      }
+
+      console.log('\n🎬 Video Presets:');
+      response.presets.forEach(preset => {
+        console.log(`• ${chalk.cyan(preset.id || `${preset.format}_${preset.videoCodec}`)}`);
+        console.log(`   Format: ${preset.format} | Video: ${preset.videoCodec} | Audio: ${preset.audioCodec}`);
+        if (preset.resolution) {
+          console.log(`   Resolution: ${preset.resolution}`);
+        }
+        if (preset.bitrate) {
+          console.log(`   Bitrate: ${preset.bitrate}`);
+        }
+        if (preset.audioBitrate) {
+          console.log(`   Audio Bitrate: ${preset.audioBitrate}`);
+        }
+        console.log();
+      });
+    } catch (error: any) {
+      spinner.fail('Failed to retrieve presets');
+      console.log(chalk.red(error.message));
+    }
+  }
+
+  async processVideo(mediaFileId: string, options: any): Promise<void> {
+    if (!this.config.apiKey) {
+      console.log(chalk.red('✗ Please configure your API key first: dmedia config'));
+      return;
+    }
+
+    const outputs: any[] = [];
+
+    if (options.preset) {
+      const presets = Array.isArray(options.preset) ? options.preset : [options.preset];
+      presets.forEach((preset: string) => {
+        outputs.push({ preset });
+      });
+    }
+
+    if (options.output) {
+      const rawOutputs = Array.isArray(options.output) ? options.output : [options.output];
+      for (const raw of rawOutputs) {
+        try {
+          const parsed = JSON.parse(raw);
+          outputs.push(parsed);
+        } catch (error) {
+          console.log(chalk.red(`✗ Invalid JSON passed to --output: ${raw}`));
+          return;
+        }
+      }
+    }
+
+    const payload: any = {};
+    if (outputs.length) {
+      payload.outputs = outputs;
+    }
+
+    if (options.webhook) {
+      payload.webhookUrl = options.webhook;
+    }
+
+    const spinner = ora('Queuing video processing job...').start();
+
+    try {
+      const response = await this.api.processVideo(mediaFileId, payload);
+      spinner.succeed('Video job queued');
+
+      console.log('\nJob Information:');
+      console.log(`ID: ${chalk.cyan(response.job.id)}`);
+      console.log(`Media: ${response.job.mediaFileId}`);
+      console.log(`Status: ${response.job.status}`);
+      console.log(`Progress: ${response.job.progress}%`);
+      if (response.job.outputs?.length) {
+        console.log('Outputs:');
+        response.job.outputs.forEach((output: any) => {
+          if (output.preset) {
+            console.log(`  • Preset: ${output.preset}`);
+          } else {
+            console.log(`  • ${output.format || 'custom'} (${output.videoCodec || 'codec'})`);
+          }
+        });
+      }
+      if (response.job.webhookUrl) {
+        console.log(`Webhook: ${response.job.webhookUrl}`);
+      }
+
+      console.log('\nUse `dmedia video-job', chalk.cyan(response.job.id), '` or `dmedia video-jobs', mediaFileId, '` to monitor progress.');
+    } catch (error: any) {
+      spinner.fail('Failed to queue video job');
+      console.log(chalk.red(error.message));
+    }
+  }
+
+  async listVideoJobs(mediaFileId: string, options: any): Promise<void> {
+    if (!this.config.apiKey) {
+      console.log(chalk.red('✗ Please configure your API key first: dmedia config'));
+      return;
+    }
+
+    const spinner = ora('Fetching video jobs...').start();
+
+    try {
+      const params: any = {};
+      if (options.status) params.status = options.status;
+      if (options.limit) params.limit = Number(options.limit);
+      if (options.offset) params.offset = Number(options.offset);
+
+      const response = await this.api.listVideoJobs(mediaFileId, params);
+      spinner.succeed(`Found ${response.results.length} job(s)`);
+
+      if (!response.results.length) {
+        console.log(chalk.yellow('No processing jobs found for this media file.'));
+        return;
+      }
+
+      response.results.forEach(job => {
+        console.log(`• ${chalk.cyan(job.id)} | ${job.status} | ${job.progress ?? 0}%`);
+        if (job.generated_outputs?.length) {
+          console.log(`  Outputs: ${job.generated_outputs.map(output => `${output.format}/${output.videoCodec}`).join(', ')}`);
+        }
+        if (job.error_message) {
+          console.log(chalk.red(`  Error: ${job.error_message}`));
+        }
+        console.log();
+      });
+    } catch (error: any) {
+      spinner.fail('Failed to fetch video jobs');
+      console.log(chalk.red(error.message));
+    }
+  }
+
+  async getVideoJob(jobId: string): Promise<void> {
+    if (!this.config.apiKey) {
+      console.log(chalk.red('✗ Please configure your API key first: dmedia config'));
+      return;
+    }
+
+    const spinner = ora('Fetching job details...').start();
+
+    try {
+      const response = await this.api.getVideoJob(jobId);
+      spinner.succeed('Job retrieved');
+
+      const job = response.job;
+      console.log(`\nJob ${chalk.cyan(job.id)}`);
+      console.log(`Media: ${job.media_file_id}`);
+      console.log(`Status: ${job.status}`);
+      console.log(`Progress: ${job.progress ?? 0}%`);
+      if (job.error_message) {
+        console.log(chalk.red(`Error: ${job.error_message}`));
+      }
+
+      if (job.generated_outputs?.length) {
+        console.log('\nOutputs:');
+        job.generated_outputs.forEach(output => {
+          console.log(`  • ${output.format}/${output.videoCodec} (${this.formatFileSize(output.size || 0)})`);
+          console.log(`    Storage Key: ${output.storageKey}`);
+          if (output.url) {
+            console.log(`    URL: ${output.url}`);
+          }
+          console.log();
+        });
+      }
+
+      if (job.metadata?.source) {
+        const source = job.metadata.source;
+        console.log('\nSource Metadata:');
+        if (source.duration) {
+          console.log(`  Duration: ${source.duration}s`);
+        }
+        if (source.video) {
+          console.log(`  Video: ${source.video.codec} ${source.video.width}x${source.video.height}`);
+        }
+        if (source.audio) {
+          console.log(`  Audio: ${source.audio.codec || 'n/a'}`);
+        }
+      }
+    } catch (error: any) {
+      spinner.fail('Failed to retrieve job');
+      console.log(chalk.red(error.message));
+    }
+  }
+
   private formatFileSize(bytes: number): string {
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     if (bytes === 0) return '0 Bytes';
-    
+
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
   }
@@ -396,6 +593,40 @@ program
   .description('Delete a file')
   .action(async (fileId) => {
     await cli.deleteFile(fileId);
+  });
+
+program
+  .command('video-presets')
+  .description('List available video processing presets')
+  .action(async () => {
+    await cli.listVideoPresets();
+  });
+
+program
+  .command('video-process <mediaId>')
+  .description('Queue a video for transcoding')
+  .option('-p, --preset <preset...>', 'Preset ID(s) to use')
+  .option('-o, --output <json...>', 'Custom output definition as JSON string')
+  .option('-w, --webhook <url>', 'Webhook URL for completion/failure callbacks')
+  .action(async (mediaId, options) => {
+    await cli.processVideo(mediaId, options);
+  });
+
+program
+  .command('video-jobs <mediaId>')
+  .description('List video processing jobs for a media file')
+  .option('-s, --status <status>', 'Filter by status (queued, processing, completed, failed, cancelled)')
+  .option('-l, --limit <limit>', 'Limit number of jobs', (value) => parseInt(value, 10))
+  .option('--offset <offset>', 'Offset for pagination', (value) => parseInt(value, 10))
+  .action(async (mediaId, options) => {
+    await cli.listVideoJobs(mediaId, options);
+  });
+
+program
+  .command('video-job <jobId>')
+  .description('Inspect a specific video processing job')
+  .action(async (jobId) => {
+    await cli.getVideoJob(jobId);
   });
 
 program

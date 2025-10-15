@@ -47,6 +47,102 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
+export interface VideoPreset {
+  id?: string;
+  format: string;
+  videoCodec: string;
+  audioCodec: string;
+  resolution?: string | null;
+  bitrate?: string | null;
+  audioBitrate?: string | null;
+  profile?: string | null;
+  crf?: number | null;
+}
+
+export interface VideoOutputRequest {
+  preset?: string;
+  format?: string;
+  videoCodec?: string;
+  audioCodec?: string;
+  resolution?: string;
+  bitrate?: string;
+  audioBitrate?: string;
+  crf?: number;
+  fps?: number | string;
+  profile?: string;
+}
+
+export interface VideoOutputResult {
+  id: string;
+  format: string;
+  videoCodec: string;
+  audioCodec: string;
+  storageKey: string;
+  size?: number;
+  duration?: number;
+  width?: number;
+  height?: number;
+  bitrate?: number;
+  url?: string | null;
+  signedUrl?: string | null;
+  access?: 'public' | 'private';
+}
+
+export interface VideoJobRecord {
+  id: string;
+  media_file_id: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  progress: number;
+  requested_outputs?: VideoOutputRequest[];
+  generated_outputs?: VideoOutputResult[];
+  metadata?: Record<string, any>;
+  error_message?: string | null;
+  webhook_url?: string | null;
+  retry_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
+}
+
+export interface VideoJobSummary {
+  id: string;
+  mediaFileId: string;
+  status: string;
+  progress: number;
+  outputs: VideoOutputRequest[];
+  webhookUrl?: string | null;
+}
+
+export interface VideoJobRequest {
+  outputs?: VideoOutputRequest[];
+  webhookUrl?: string;
+}
+
+export interface VideoJobQueueResponse {
+  success: boolean;
+  job: VideoJobSummary;
+}
+
+export interface VideoPresetResponse {
+  success: boolean;
+  presets: VideoPreset[];
+}
+
+export interface VideoJobListResponse {
+  success: boolean;
+  results: VideoJobRecord[];
+  pagination: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
+export interface VideoJobDetailResponse {
+  success: boolean;
+  job: VideoJobRecord;
+}
+
 export class DaileyMediaApi {
   private client: AxiosInstance;
   private maxRetries: number;
@@ -219,6 +315,44 @@ export class DaileyMediaApi {
    */
   async health(): Promise<any> {
     const response = await this.client.get('/health');
+    return response.data;
+  }
+
+  /**
+   * Video processing helpers
+   */
+  async listVideoPresets(): Promise<VideoPresetResponse> {
+    const response = await this.client.get('/api/video/presets');
+    return response.data;
+  }
+
+  async processVideo(mediaFileId: string, payload: VideoJobRequest = {}): Promise<VideoJobQueueResponse> {
+    if (!mediaFileId) {
+      throw new Error('mediaFileId is required');
+    }
+
+    const response = await this.client.post(`/api/video/${mediaFileId}/process`, payload);
+    return response.data;
+  }
+
+  async listVideoJobs(
+    mediaFileId: string,
+    params: { status?: string; limit?: number; offset?: number } = {}
+  ): Promise<VideoJobListResponse> {
+    if (!mediaFileId) {
+      throw new Error('mediaFileId is required');
+    }
+
+    const response = await this.client.get(`/api/video/${mediaFileId}/jobs`, { params });
+    return response.data;
+  }
+
+  async getVideoJob(jobId: string): Promise<VideoJobDetailResponse> {
+    if (!jobId) {
+      throw new Error('jobId is required');
+    }
+
+    const response = await this.client.get(`/api/video/jobs/${jobId}`);
     return response.data;
   }
 

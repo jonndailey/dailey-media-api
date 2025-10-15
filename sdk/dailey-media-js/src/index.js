@@ -113,6 +113,42 @@ export class DaileyMediaClient {
   setDefaultBucket(bucketId) {
     this.defaultBucket = bucketId
   }
+
+  /**
+   * Video processing helpers
+   */
+  async listVideoPresets() {
+    return this.http.request('/api/video/presets')
+  }
+
+  async processVideo(mediaFileId, options = {}) {
+    if (!mediaFileId) {
+      throw new Error('processVideo requires a mediaFileId')
+    }
+
+    return this.http.request(`/api/video/${mediaFileId}/process`, {
+      method: 'POST',
+      body: options
+    })
+  }
+
+  async listVideoJobs(mediaFileId, query = {}) {
+    if (!mediaFileId) {
+      throw new Error('listVideoJobs requires a mediaFileId')
+    }
+
+    return this.http.request(`/api/video/${mediaFileId}/jobs`, {
+      query
+    })
+  }
+
+  async getVideoJob(jobId) {
+    if (!jobId) {
+      throw new Error('getVideoJob requires a jobId')
+    }
+
+    return this.http.request(`/api/video/jobs/${jobId}`)
+  }
 }
 
 export { HttpError }

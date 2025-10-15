@@ -121,6 +121,20 @@ const analytics = await api.getAnalytics('7d') // 1d, 7d, 30d, 90d
 #### `health(): Promise<any>`
 Check API health and connectivity.
 
+### Video Processing
+
+#### `listVideoPresets(): Promise<{success: boolean; presets: VideoPreset[]}>`
+Retrieve the server-side presets (format, codecs, bitrates) available for transcoding jobs.
+
+#### `processVideo(mediaFileId: string, options?: VideoJobRequest): Promise<{success: boolean; job: VideoJob}>`
+Queue a video for transcoding. Pass `options.outputs` with preset IDs or custom definitions, and optionally a `webhookUrl` for completion callbacks.
+
+#### `listVideoJobs(mediaFileId: string, query?: { status?: string; limit?: number; offset?: number }): Promise<{success: boolean; results: VideoJob[]}>`
+Paginate through previous processing jobs for a media asset.
+
+#### `getVideoJob(jobId: string): Promise<{success: boolean; job: VideoJob}>`
+Fetch the current status, progress, and generated outputs for a specific processing job.
+
 ## TypeScript Support
 
 The SDK is written in TypeScript and includes comprehensive type definitions:

@@ -127,6 +127,38 @@ Displays:
 - Recent upload activity
 - Top bucket usage
 
+### Video Processing
+
+#### Inspect Presets
+```bash
+dmedia video-presets
+```
+Lists the available transcoding presets (format, codecs, bitrate, resolution).
+
+#### Queue a Processing Job
+```bash
+# Use default presets defined on the server
+dmedia video-process media-file-id
+
+# Target specific presets
+dmedia video-process media-file-id --preset 1080p_h264 --preset 720p_h264
+
+# Supply a custom output definition (JSON string)
+dmedia video-process media-file-id --output '{"format":"webm","videoCodec":"libvpx-vp9","resolution":"1280x720"}'
+
+# Include a webhook for completion callbacks
+dmedia video-process media-file-id --preset 1080p_h264 --webhook https://app.example.com/hooks/video
+```
+
+#### Monitor Jobs
+```bash
+# List jobs for a media asset
+dmedia video-jobs media-file-id --status processing
+
+# Inspect a single job
+dmedia video-job job-id-123
+```
+
 ## Examples
 
 ### Batch Photo Upload
