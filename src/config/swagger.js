@@ -360,6 +360,10 @@ const options = {
       {
         name: 'Document Conversion',
         description: 'Document transformation, batch workflows, and job history'
+      },
+      {
+        name: 'Video Processing',
+        description: 'Video transcoding, job queues, and progress tracking'
       }
     ]
   },

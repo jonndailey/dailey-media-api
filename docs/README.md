@@ -149,6 +149,7 @@ dmedia analytics
 
 - [OCR and Text Extraction](./ocr.md)
 - [Document Conversion Service](./conversion.md)
+- [Video Processing Pipeline](./video-processing.md)
 - [Compliance & Privacy](./compliance.md)
 
 ## Security

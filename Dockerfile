@@ -31,7 +31,8 @@ RUN apk update && apk upgrade && \
     dumb-init \
     curl \
     ca-certificates \
-    tzdata && \
+    tzdata \
+    ffmpeg && \
     rm -rf /var/cache/apk/*
 
 # Create non-root user

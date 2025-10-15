@@ -19,10 +19,12 @@ import analyticsRoutes from './routes/analytics.js';
 import serveRoutes from './routes/serve.js';
 import ocrRoutes from './routes/ocr.js';
 import conversionRoutes from './routes/conversion.js';
+import videoRoutes from './routes/video.js';
 import { errorHandler } from './middleware/error.js';
 import { requestLogger } from './middleware/logger.js';
 import databaseService from './services/databaseService.js';
 import analyticsService from './services/analyticsService.js';
+import videoProcessingService from './services/videoProcessingService.js';
 import {
   securityHeaders,
   generalRateLimit,
@@ -41,6 +43,7 @@ const app = express();
 
 // Initialize database service
 await databaseService.initialize();
+await videoProcessingService.initialize();
 
 // Force HTTPS in production
 app.use(forceHTTPS);
@@ -100,6 +103,7 @@ app.use('/api/analytics', analyticsRoutes); // Analytics and stats
 app.use('/api/serve', serveRoutes);     // File serving and public links
 app.use('/api/ocr', ocrRoutes);         // OCR and text extraction
 app.use('/api/conversion', conversionRoutes); // Document conversions
+app.use('/api/video', videoRoutes);     // Video transcoding and processing
 
 // API info endpoint
 app.get('/api', (req, res) => {
@@ -116,7 +120,8 @@ app.get('/api', (req, res) => {
       buckets: '/api/buckets',   // Bucket management
       analytics: '/api/analytics', // Usage statistics
       serve: '/api/serve',        // File serving and public links
-      conversion: '/api/conversion' // Document conversion workflows
+      conversion: '/api/conversion', // Document conversion workflows
+      video: '/api/video'           // Video/audio processing
     },
     features: [
       'Accepts ALL file types',
@@ -129,7 +134,8 @@ app.get('/api', (req, res) => {
       'Rate limiting and security hardening',
       'Content serving and streaming',
       'Advanced analytics and monitoring',
-      'Document conversion and PDF generation'
+      'Document conversion and PDF generation',
+      'Video and audio transcoding'
     ],
     security: {
       authentication: 'Bearer JWT tokens',

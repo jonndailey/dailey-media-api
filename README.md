@@ -19,6 +19,7 @@
 - **Smart Processing**: Automatic thumbnails, metadata extraction, and categorization
 - **Document Intelligence**: Tesseract-powered OCR with PDF rasterization, 10+ language models, structured data extraction, and confidence scoring
 - **Document Conversion**: LibreOffice-backed Office → PDF conversion plus Markdown/HTML rendering with watermarking options
+- **Video Processing**: FFmpeg-powered transcoding with multi-output presets, progress tracking, and webhooks
 - **Content Serving**: Streaming, caching, and CDN-ready file delivery
 - **Public Links**: Time-limited access URLs for secure sharing
 
@@ -73,6 +74,7 @@ CORS_ORIGINS=http://localhost:3005,http://localhost:3000,http://localhost:5174,h
 
 > OCR tuning: adjust `OCR_SUPPORTED_LANGUAGES`, `OCR_DEFAULT_LANGUAGES`, `OCR_MAX_LANGUAGES`, `OCR_ENABLE_SEARCHABLE_PDF`, and `OCR_ENABLE_STRUCTURED_DATA` in `.env` to customise language availability and response payloads.
 > Conversion tuning: set `LIBREOFFICE_BINARY`, `CONVERSION_SUPPORTED_MAP`, `CONVERSION_MAX_BATCH`, `CONVERSION_ENABLE_WATERMARKING`, `CONVERSION_DEFAULT_WATERMARK`, and `CONVERSION_ENABLE_SECURITY` to control document conversion behaviour.
+> Video processing tuning: configure `VIDEO_PROCESSING_ENABLED`, `VIDEO_PROCESSING_CONCURRENCY`, `FFMPEG_PATH`, `FFPROBE_PATH`, `VIDEO_DEFAULT_OUTPUTS`, and `VIDEO_WEBHOOK_MAX_RETRIES` to shape the transcoding pipeline.
 
 ### PM2 Configuration
 The `ecosystem.config.cjs` file manages the PM2 processes:
@@ -143,6 +145,14 @@ curl http://localhost:5174/api/upload/formats
 - `GET /api/conversion/jobs/:jobId` - Inspect a specific conversion job record
 
 > Office → PDF conversions rely on LibreOffice (headless). Install `soffice` on the host or set `LIBREOFFICE_BINARY` so the service can locate it. Watermarking and metadata stripping are available when enabled in configuration.
+
+### Video Processing
+- `GET /api/video/presets` - Inspect available transcoding presets and defaults
+- `POST /api/video/:mediaFileId/process` - Queue a media file for transcoding/transmuxing
+- `GET /api/video/:mediaFileId/jobs` - List processing history for a source asset
+- `GET /api/video/jobs/:jobId` - Retrieve detailed status for a specific processing job
+
+> FFmpeg must be installed on the host (or provided via `FFMPEG_PATH`/`FFPROBE_PATH`). Jobs run asynchronously via Redis + BullMQ with webhook callbacks on completion or failure.
 
 ### File Serving
 - `GET /api/serve/files/:userId/:bucketId/*` - Serve files with nested path support

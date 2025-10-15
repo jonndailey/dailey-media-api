@@ -54,6 +54,9 @@ export const config = {
   // Document conversion
   conversion: createConversionConfig(),
 
+  // Video processing
+  videoProcessing: createVideoProcessingConfig(),
+
   // Monitoring
   logging: {
     level: process.env.LOG_LEVEL || 'info'
@@ -186,6 +189,87 @@ function createConversionConfig() {
     enableWatermarking: process.env.CONVERSION_ENABLE_WATERMARKING !== 'false',
     enableCompression: process.env.CONVERSION_ENABLE_COMPRESSION !== 'false',
     enableSecurityOptions: process.env.CONVERSION_ENABLE_SECURITY !== 'false'
+  };
+}
+
+function parseVideoOutputs(value, fallback = []) {
+  if (!value) {
+    return [...fallback];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [...fallback];
+    }
+
+    return parsed
+      .map(output => ({
+        id: output.id || null,
+        format: (output.format || '').toLowerCase(),
+        videoCodec: output.videoCodec || output.codec || '',
+        audioCodec: output.audioCodec || 'aac',
+        resolution: output.resolution || null,
+        bitrate: output.bitrate || null,
+        audioBitrate: output.audioBitrate || null,
+        preset: output.preset || null,
+        crf: typeof output.crf === 'number' ? output.crf : null,
+        fps: output.fps || null,
+        profile: output.profile || null
+      }))
+      .filter(output => output.format && output.videoCodec);
+  } catch (error) {
+    return [...fallback];
+  }
+}
+
+function createVideoProcessingConfig() {
+  const defaultOutputs = [
+    {
+      id: '1080p_h264',
+      format: 'mp4',
+      videoCodec: 'libx264',
+      audioCodec: 'aac',
+      resolution: '1920x1080',
+      bitrate: '4500k',
+      audioBitrate: '192k',
+      profile: 'high'
+    },
+    {
+      id: '720p_h264',
+      format: 'mp4',
+      videoCodec: 'libx264',
+      audioCodec: 'aac',
+      resolution: '1280x720',
+      bitrate: '2500k',
+      audioBitrate: '160k',
+      profile: 'main'
+    },
+    {
+      id: '480p_vp9',
+      format: 'webm',
+      videoCodec: 'libvpx-vp9',
+      audioCodec: 'libopus',
+      resolution: '854x480',
+      bitrate: '1200k',
+      audioBitrate: '128k'
+    }
+  ];
+
+  return {
+    enabled: process.env.VIDEO_PROCESSING_ENABLED !== 'false',
+    queueName: process.env.VIDEO_PROCESSING_QUEUE || 'video-processing',
+    concurrency: Math.max(1, parseInt(process.env.VIDEO_PROCESSING_CONCURRENCY || '1', 10)),
+    ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
+    ffprobePath: process.env.FFPROBE_PATH || 'ffprobe',
+    progressUpdateIntervalMs: Math.max(500, parseInt(process.env.VIDEO_PROGRESS_UPDATE_INTERVAL || '2000', 10)),
+    allowOriginalCopy: process.env.VIDEO_ALLOW_ORIGINAL === 'true',
+    defaultOutputs: parseVideoOutputs(process.env.VIDEO_DEFAULT_OUTPUTS, defaultOutputs),
+    webhook: {
+      enabled: process.env.VIDEO_WEBHOOKS_ENABLED !== 'false',
+      timeoutMs: Math.max(1000, parseInt(process.env.VIDEO_WEBHOOK_TIMEOUT || '5000', 10)),
+      maxRetries: Math.max(0, parseInt(process.env.VIDEO_WEBHOOK_MAX_RETRIES || '3', 10))
+    }
   };
 }
 

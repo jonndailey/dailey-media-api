@@ -826,6 +826,200 @@ class DatabaseService {
   }
 
 
+  formatProcessingJob(row) {
+    if (!row) {
+      return null;
+    }
+
+    return {
+      ...row,
+      requested_outputs: this.safeParseJson(row.requested_outputs, []),
+      generated_outputs: this.safeParseJson(row.generated_outputs, []),
+      metadata: this.safeParseJson(row.metadata, {}),
+      progress: typeof row.progress === 'number'
+        ? Number(row.progress)
+        : (row.progress ? Number(row.progress) : 0)
+    };
+  }
+
+  async createProcessingJob(jobData) {
+    try {
+      if (!this.isAvailable()) {
+        return null;
+      }
+
+      const id = jobData.id || nanoid();
+      const query = `
+        INSERT INTO media_processing_jobs (
+          id, media_file_id, type, status, progress,
+          input_storage_key, requested_outputs, metadata,
+          webhook_url, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const params = [
+        id,
+        jobData.media_file_id,
+        jobData.type || 'video.transcode',
+        jobData.status || 'queued',
+        typeof jobData.progress === 'number'
+          ? Number(jobData.progress.toFixed(2))
+          : 0,
+        jobData.input_storage_key,
+        JSON.stringify(jobData.requested_outputs || []),
+        JSON.stringify(jobData.metadata || {}),
+        jobData.webhook_url || null,
+        jobData.created_by || null
+      ];
+
+      await db.query(query, params);
+      logInfo('Processing job created', {
+        id,
+        media_file_id: jobData.media_file_id,
+        type: jobData.type || 'video.transcode'
+      });
+
+      return id;
+    } catch (error) {
+      logError(error, { context: 'databaseService.createProcessingJob', media_file_id: jobData?.media_file_id });
+      throw error;
+    }
+  }
+
+  async updateProcessingJob(jobId, updates = {}) {
+    try {
+      if (!this.isAvailable()) {
+        return false;
+      }
+
+      const fields = [];
+      const params = [];
+
+      const addField = (column, value, transform) => {
+        fields.push(`${column} = ?`);
+        params.push(transform ? transform(value) : value);
+      };
+
+      if (typeof updates.status === 'string') {
+        addField('status', updates.status);
+      }
+
+      if (typeof updates.progress !== 'undefined') {
+        const progressValue = typeof updates.progress === 'number'
+          ? Number(updates.progress.toFixed(2))
+          : null;
+        addField('progress', progressValue);
+      }
+
+      if (typeof updates.generated_outputs !== 'undefined') {
+        addField('generated_outputs', JSON.stringify(updates.generated_outputs || []));
+      }
+
+      if (typeof updates.requested_outputs !== 'undefined') {
+        addField('requested_outputs', JSON.stringify(updates.requested_outputs || []));
+      }
+
+      if (typeof updates.metadata !== 'undefined') {
+        addField('metadata', JSON.stringify(updates.metadata || {}));
+      }
+
+      if (typeof updates.error_message !== 'undefined') {
+        addField('error_message', updates.error_message || null);
+      }
+
+      if (typeof updates.webhook_url !== 'undefined') {
+        addField('webhook_url', updates.webhook_url || null);
+      }
+
+      if (typeof updates.retry_count !== 'undefined') {
+        addField('retry_count', updates.retry_count);
+      }
+
+      if (typeof updates.completed_at !== 'undefined') {
+        addField('completed_at', updates.completed_at || null);
+      }
+
+      if (!fields.length) {
+        return false;
+      }
+
+      params.push(jobId);
+
+      const query = `
+        UPDATE media_processing_jobs
+        SET ${fields.join(', ')}
+        WHERE id = ?
+      `;
+
+      await db.query(query, params);
+      return true;
+    } catch (error) {
+      logError(error, { context: 'databaseService.updateProcessingJob', jobId });
+      throw error;
+    }
+  }
+
+  async getProcessingJob(jobId) {
+    try {
+      if (!this.isAvailable()) {
+        return null;
+      }
+
+      const query = `
+        SELECT *
+        FROM media_processing_jobs
+        WHERE id = ?
+      `;
+
+      const results = await db.query(query, [jobId]);
+      if (!results.length) {
+        return null;
+      }
+
+      return this.formatProcessingJob(results[0]);
+    } catch (error) {
+      logError(error, { context: 'databaseService.getProcessingJob', jobId });
+      throw error;
+    }
+  }
+
+  async listProcessingJobs(mediaFileId, options = {}) {
+    try {
+      if (!this.isAvailable()) {
+        return [];
+      }
+
+      const { limit = 20, offset = 0, status = null } = options;
+      const params = [mediaFileId];
+      let query = `
+        SELECT *
+        FROM media_processing_jobs
+        WHERE media_file_id = ?
+      `;
+
+      if (status) {
+        query += ' AND status = ?';
+        params.push(status);
+      }
+
+      query += `
+        ORDER BY created_at DESC
+        LIMIT ?
+        OFFSET ?
+      `;
+
+      params.push(Number(limit));
+      params.push(Number(offset));
+
+      const results = await db.query(query, params);
+      return results.map(row => this.formatProcessingJob(row));
+    } catch (error) {
+      logError(error, { context: 'databaseService.listProcessingJobs', mediaFileId });
+      throw error;
+    }
+  }
+
+
   // Analytics operations
   async recordMediaEvent(eventData) {
     try {

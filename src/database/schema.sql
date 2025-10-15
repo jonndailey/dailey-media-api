@@ -261,6 +261,32 @@ CREATE TABLE IF NOT EXISTS media_conversion_jobs (
     INDEX idx_conversion_created (created_at)
 );
 
+-- Media processing jobs (video/audio transcoding)
+CREATE TABLE IF NOT EXISTS media_processing_jobs (
+    id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    media_file_id VARCHAR(36) NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    status ENUM('queued', 'processing', 'completed', 'failed', 'cancelled') DEFAULT 'queued',
+    progress DECIMAL(5,2) DEFAULT 0,
+    input_storage_key VARCHAR(500) NOT NULL,
+    requested_outputs JSON,
+    generated_outputs JSON,
+    error_message TEXT,
+    metadata JSON,
+    webhook_url VARCHAR(500),
+    retry_count INT DEFAULT 0,
+    created_by VARCHAR(36),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL,
+    
+    FOREIGN KEY (media_file_id) REFERENCES media_files(id) ON DELETE CASCADE,
+    
+    INDEX idx_processing_media (media_file_id),
+    INDEX idx_processing_status (status),
+    INDEX idx_processing_created (created_at)
+);
+
 -- Media tags (many-to-many relationship)
 CREATE TABLE IF NOT EXISTS media_tags (
     id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),

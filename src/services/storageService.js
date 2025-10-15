@@ -2,6 +2,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, Head
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { nanoid } from 'nanoid';
 import config from '../config/index.js';
 import { logInfo, logError } from '../middleware/logger.js';
@@ -57,6 +58,11 @@ class StorageService {
     } else {
       return this.uploadFileS3(buffer, key, contentType, metadata, options);
     }
+  }
+
+  async uploadFileFromPath(filePath, key, contentType, metadata = {}, options = {}) {
+    const fileBuffer = await fs.promises.readFile(filePath);
+    return this.uploadFile(fileBuffer, key, contentType, metadata, options);
   }
 
   /**
@@ -245,6 +251,41 @@ class StorageService {
       return { success: true, key };
     } catch (error) {
       logError(error, { context: 'StorageService.deleteFileLocal', key });
+      throw error;
+    }
+  }
+
+  async downloadToTempFile(key, options = {}) {
+    const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dmapi-'));
+    const extension = options.extension
+      ? `.${options.extension.replace(/^\./, '')}`
+      : path.extname(key);
+    const fileName = `${options.prefix || 'media'}-${Date.now()}-${nanoid(6)}${extension}`;
+    const filePath = path.join(tempDir, fileName);
+
+    try {
+      if (this.storageType === 'local') {
+        const sourcePath = path.join(process.cwd(), 'storage', key);
+        await fs.promises.copyFile(sourcePath, filePath);
+      } else {
+        const buffer = await this.getFileBuffer(key);
+        await fs.promises.writeFile(filePath, buffer);
+      }
+
+      return {
+        tempDir,
+        filePath,
+        cleanup: async () => {
+          try {
+            await fs.promises.rm(tempDir, { recursive: true, force: true });
+          } catch (error) {
+            logError(error, { context: 'StorageService.cleanupTempFile', key });
+          }
+        }
+      };
+    } catch (error) {
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
+      logError(error, { context: 'StorageService.downloadToTempFile', key });
       throw error;
     }
   }
