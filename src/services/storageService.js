@@ -1,4 +1,13 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  CreateBucketCommand,
+  HeadBucketCommand
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import fs from 'fs';
 import path from 'path';
@@ -13,6 +22,7 @@ class StorageService {
     this.bucketName = config.storage.s3.bucket;
     this.cdnUrl = config.cdnUrl;
     this.storageType = config.storage.type;
+    this.s3Ready = Promise.resolve();
     
     if (this.storageType === 's3') {
       this.initializeS3Client();
@@ -43,9 +53,75 @@ class StorageService {
         bucket: this.bucketName,
         region: config.storage.s3.region
       });
+
+      this.s3Ready = this.ensureBucketExists();
     } catch (error) {
       logError(error, { context: 'StorageService.initializeS3Client' });
       throw error;
+    }
+  }
+
+  async ensureReady() {
+    if (this.storageType !== 's3') {
+      return;
+    }
+
+    try {
+      await this.s3Ready;
+    } catch (error) {
+      logError(error, { context: 'StorageService.ensureReady' });
+      throw error;
+    }
+  }
+
+  async ensureBucketExists() {
+    if (!this.s3Client || !this.bucketName) {
+      throw new Error('S3 client or bucket name not configured');
+    }
+
+    try {
+      await this.s3Client.send(new HeadBucketCommand({ Bucket: this.bucketName }));
+      return true;
+    } catch (error) {
+      const isMissing = error?.$metadata?.httpStatusCode === 404 || error?.Code === 'NoSuchBucket';
+      const isForbidden = error?.$metadata?.httpStatusCode === 403;
+
+      if (!isMissing && !isForbidden) {
+        throw error;
+      }
+
+      if (isForbidden) {
+        logError(error, {
+          context: 'StorageService.ensureBucketExists.forbidden',
+          bucket: this.bucketName
+        });
+        throw error;
+      }
+
+      const createParams = { Bucket: this.bucketName };
+
+      if (config.storage.s3.region && config.storage.s3.region !== 'us-east-1') {
+        createParams.CreateBucketConfiguration = { LocationConstraint: config.storage.s3.region };
+      }
+
+      try {
+        await this.s3Client.send(new CreateBucketCommand(createParams));
+        logInfo('S3 bucket created', { bucket: this.bucketName });
+        return true;
+      } catch (createError) {
+        const alreadyOwned = createError?.Code === 'BucketAlreadyOwnedByYou' || createError?.Code === 'BucketAlreadyExists';
+
+        if (alreadyOwned) {
+          logInfo('S3 bucket already exists', { bucket: this.bucketName });
+          return true;
+        }
+
+        logError(createError, {
+          context: 'StorageService.ensureBucketExists.createFailed',
+          bucket: this.bucketName
+        });
+        throw createError;
+      }
     }
   }
 
@@ -70,6 +146,8 @@ class StorageService {
    */
   async uploadFileS3(buffer, key, contentType, metadata = {}, options = {}) {
     try {
+      await this.ensureReady();
+
       const access = options.access || metadata.access || 'private';
       metadata.access = access;
 
@@ -166,6 +244,8 @@ class StorageService {
    */
   async getFileBufferS3(key) {
     try {
+      await this.ensureReady();
+
       const command = new GetObjectCommand({
         Bucket: this.bucketName,
         Key: key,
@@ -215,6 +295,8 @@ class StorageService {
    */
   async deleteFileS3(key) {
     try {
+      await this.ensureReady();
+
       const command = new DeleteObjectCommand({
         Bucket: this.bucketName,
         Key: key,
@@ -306,6 +388,8 @@ class StorageService {
    */
   async fileExistsS3(key) {
     try {
+      await this.ensureReady();
+
       const command = new HeadObjectCommand({
         Bucket: this.bucketName,
         Key: key,
@@ -338,6 +422,8 @@ class StorageService {
     }
 
     try {
+      await this.ensureReady();
+
       const command = new GetObjectCommand({
         Bucket: this.bucketName,
         Key: key,
@@ -527,6 +613,8 @@ class StorageService {
 
   async uploadMetadataSidecarS3(key, metadataPayload) {
     try {
+      await this.ensureReady();
+
       const command = new PutObjectCommand({
         Bucket: this.bucketName,
         Key: `${key}.meta.json`,
@@ -558,6 +646,8 @@ class StorageService {
         Bucket: this.bucketName,
         Key: `${key}.meta.json`
       });
+
+      await this.ensureReady();
 
       const response = await this.s3Client.send(command);
       const buffer = await this.streamToBuffer(response.Body);
@@ -676,6 +766,8 @@ class StorageService {
   }
 
   async listBucketFolderS3(userId, bucketId, folderPath = '') {
+    await this.ensureReady();
+
     const normalizedPath = folderPath
       ? folderPath.replace(/^\//, '').replace(/\/$/, '')
       : '';
@@ -801,6 +893,8 @@ class StorageService {
         });
         
         try {
+          await this.ensureReady();
+
           await this.s3Client.send(command);
         } catch (error) {
           // 404 is expected for non-existent file, means S3 is accessible

@@ -230,11 +230,19 @@ pm2 start ecosystem.config.cjs
 PORT=4100
 HOST=0.0.0.0
 NODE_ENV=development
-STORAGE_TYPE=local
+STORAGE_TYPE=s3
+# Replace 127.0.0.1 with your Tailscale IP if other devices need access (e.g. http://100.105.97.19:9000)
+S3_ENDPOINT=http://127.0.0.1:9000
+S3_BUCKET=dailey-media
+S3_ACCESS_KEY_ID=dailey
+S3_SECRET_ACCESS_KEY=dailey-secret
+S3_FORCE_PATH_STYLE=
 DISABLE_AUTH=true
 LOG_LEVEL=debug
 CORS_ORIGINS=http://localhost:5174,http://YOUR_TAILSCALE_IP:5174
 ```
+
+Need to populate MinIO with existing local files? Once MinIO is running and `.env` points at it, execute `npm run migrate:local-s3` (append `--dry-run` to preview, `--skip-existing` to avoid overwriting) to copy `./storage` into the bucket with matching metadata.
 
 ### `ecosystem.config.cjs`
 ```javascript

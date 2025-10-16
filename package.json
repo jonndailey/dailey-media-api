@@ -9,6 +9,8 @@
     "dev:backend": "PORT=4100 nodemon src/index.js",
     "dev:frontend": "cd web && npm run dev",
     "start": "PORT=4100 node src/index.js",
+    "minio:install": "./scripts/installMinio.sh",
+    "minio": "./scripts/startMinio.sh",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
     "lint": "eslint src",
     "build": "echo 'Build step - add Docker build here'",
@@ -26,7 +28,8 @@
     "pm2:logs:frontend": "npx pm2 logs dmapi-frontend",
     "pm2:status": "npx pm2 status",
     "check:ports": "lsof -i :4100 && lsof -i :5174",
-    "check:health": "curl http://localhost:4100/health && curl http://localhost:5174/api/upload/formats"
+    "check:health": "curl http://localhost:4100/health && curl http://localhost:5174/api/upload/formats",
+    "migrate:local-s3": "node scripts/migrateLocalToS3.js"
   },
   "keywords": [
     "media",

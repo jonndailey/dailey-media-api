@@ -63,6 +63,8 @@ test-results/
 # Storage directories (development)
 storage/
 uploads/
+.minio/
+bin/minio
 
 # Database files (development)
 *.db

@@ -18,12 +18,18 @@ export const config = {
   storage: {
     type: process.env.STORAGE_TYPE || 's3',
     s3: {
-      endpoint: process.env.S3_ENDPOINT,
+      endpoint: process.env.S3_ENDPOINT?.trim() || undefined,
       region: process.env.S3_REGION || 'us-east-1',
       bucket: process.env.S3_BUCKET || 'dailey-media',
       accessKeyId: process.env.S3_ACCESS_KEY_ID,
       secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
-      forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true'
+      forcePathStyle: (() => {
+        const rawValue = process.env.S3_FORCE_PATH_STYLE;
+        if (typeof rawValue === 'string' && rawValue.length) {
+          return rawValue.toLowerCase() === 'true';
+        }
+        return Boolean(process.env.S3_ENDPOINT);
+      })()
     }
   },
 

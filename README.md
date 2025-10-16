@@ -62,7 +62,14 @@ HOST=0.0.0.0
 NODE_ENV=development
 
 # Storage
-STORAGE_TYPE=local
+STORAGE_TYPE=s3
+# Replace 127.0.0.1 with your Tailscale IP if other devices need access (e.g. http://100.105.97.19:9000)
+S3_ENDPOINT=http://127.0.0.1:9000
+S3_BUCKET=dailey-media
+S3_ACCESS_KEY_ID=dailey
+S3_SECRET_ACCESS_KEY=dailey-secret
+# Leave blank to let the app choose a sensible default (true when endpoint is present)
+S3_FORCE_PATH_STYLE=
 
 # Development
 DISABLE_AUTH=true
@@ -100,6 +107,30 @@ pm2 start ecosystem.config.cjs
 pm2 start ecosystem.config.cjs --only dmapi-backend
 pm2 start ecosystem.config.cjs --only dmapi-frontend
 ```
+
+### Local MinIO (Development)
+
+Install the MinIO server binary and run it alongside the API:
+
+```bash
+npm run minio:install
+npm run minio
+```
+
+The MinIO server listens on `http://127.0.0.1:9000` (S3 API) and `http://127.0.0.1:9001` (web console). Default credentials are `dailey` / `dailey-secret`; override them with `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` in your `.env`.
+
+### Migrate Existing Local Media
+
+After MinIO is running and `STORAGE_TYPE` is set to `s3`, copy the legacy filesystem storage into the MinIO bucket:
+
+```bash
+npm run migrate:local-s3
+# Optional flags:
+#   --dry-run        Preview actions without uploading
+#   --skip-existing  Keep existing objects untouched
+```
+
+By default the script walks `./storage`, recreates keys like `files/{userId}/{bucketId}/...`, and preserves metadata sidecars. Replace `127.0.0.1` with your Tailscale IP in `.env` so remote devices resolve signed URLs.
 
 ### Verify Services
 ```bash
@@ -362,12 +393,18 @@ If you see `net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin` errors:
 Key environment variables for proper operation:
 ```env
 NODE_ENV=development
-PORT=4000
+PORT=4100
 HOST=0.0.0.0
-VITE_MEDIA_API_URL=http://localhost:4000
+VITE_MEDIA_API_URL=http://localhost:4100
 
 # Storage Configuration
-STORAGE_TYPE=local
+STORAGE_TYPE=s3
+# Replace 127.0.0.1 with your Tailscale IP if other devices need access (e.g. http://100.105.97.19:9000)
+S3_ENDPOINT=http://127.0.0.1:9000
+S3_BUCKET=dailey-media
+S3_ACCESS_KEY_ID=dailey
+S3_SECRET_ACCESS_KEY=dailey-secret
+S3_FORCE_PATH_STYLE=
 
 # CORS Configuration (critical for browser integration)
 CORS_ORIGINS=http://localhost:3005,http://100.105.97.19:3005,http://localhost:3000,http://100.105.97.19:3000
