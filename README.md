@@ -74,6 +74,7 @@ S3_FORCE_PATH_STYLE=
 # Development
 DISABLE_AUTH=true
 LOG_LEVEL=debug
+VIDEO_PROCESSING_ENABLED=false  # Enable only when Redis + FFmpeg are configured
 
 # CORS (update with your IPs)
 CORS_ORIGINS=http://localhost:3005,http://localhost:3000,http://localhost:5174,http://YOUR_TAILSCALE_IP:5174
@@ -81,7 +82,7 @@ CORS_ORIGINS=http://localhost:3005,http://localhost:3000,http://localhost:5174,h
 
 > OCR tuning: adjust `OCR_SUPPORTED_LANGUAGES`, `OCR_DEFAULT_LANGUAGES`, `OCR_MAX_LANGUAGES`, `OCR_ENABLE_SEARCHABLE_PDF`, and `OCR_ENABLE_STRUCTURED_DATA` in `.env` to customise language availability and response payloads.
 > Conversion tuning: set `LIBREOFFICE_BINARY`, `CONVERSION_SUPPORTED_MAP`, `CONVERSION_MAX_BATCH`, `CONVERSION_ENABLE_WATERMARKING`, `CONVERSION_DEFAULT_WATERMARK`, and `CONVERSION_ENABLE_SECURITY` to control document conversion behaviour.
-> Video processing tuning: configure `VIDEO_PROCESSING_ENABLED`, `VIDEO_PROCESSING_CONCURRENCY`, `FFMPEG_PATH`, `FFPROBE_PATH`, `VIDEO_DEFAULT_OUTPUTS`, and `VIDEO_WEBHOOK_MAX_RETRIES` to shape the transcoding pipeline.
+> Video processing tuning: configure `VIDEO_PROCESSING_ENABLED`, `VIDEO_PROCESSING_CONCURRENCY`, `FFMPEG_PATH`, `FFPROBE_PATH`, `VIDEO_DEFAULT_OUTPUTS`, and `VIDEO_WEBHOOK_MAX_RETRIES` to shape the transcoding pipeline. Redis is required for queue processing; leave `VIDEO_PROCESSING_ENABLED=false` locally if Redis isn’t running.
 
 ### PM2 Configuration
 The `ecosystem.config.cjs` file manages the PM2 processes:

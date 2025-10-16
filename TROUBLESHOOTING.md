@@ -239,10 +239,13 @@ S3_SECRET_ACCESS_KEY=dailey-secret
 S3_FORCE_PATH_STYLE=
 DISABLE_AUTH=true
 LOG_LEVEL=debug
+VIDEO_PROCESSING_ENABLED=false
 CORS_ORIGINS=http://localhost:5174,http://YOUR_TAILSCALE_IP:5174
 ```
 
 Need to populate MinIO with existing local files? Once MinIO is running and `.env` points at it, execute `npm run migrate:local-s3` (append `--dry-run` to preview, `--skip-existing` to avoid overwriting) to copy `./storage` into the bucket with matching metadata.
+
+If you see repeated `connect ECONNREFUSED 127.0.0.1:6379` errors in PM2 logs, Redis isn’t running. Either start a Redis instance or leave `VIDEO_PROCESSING_ENABLED=false` so the video queue stays disabled during local development.
 
 ### `ecosystem.config.cjs`
 ```javascript
