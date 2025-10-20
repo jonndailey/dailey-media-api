@@ -91,6 +91,44 @@
 
 ---
 
+### 🔴 Issue: Immediate logout after Core login (401 on /api/*)
+
+Symptoms:
+- Browser logs in to Core successfully, then DMAPI calls like `/api/buckets` respond 401 and the UI logs out.
+- In PM2 logs you may see nothing obvious, or occasional `Token validation failed` entries.
+
+Likely causes:
+- JWT audience mismatch: Core issues tokens with `aud` set to the DMAPI app-id GUID, but DMAPI only accepts `dailey-media-api`.
+- JWKS validate ok but `CORE_APP_ID` was not loaded (wrong CWD or missing from `.env`).
+- Fallback to `GET /auth/validate` on Core returned 5xx while local JWKS verify was not enabled.
+
+Fix checklist:
+- Ensure DMAPI knows the Core audience:
+  - Add to `/opt/dailey-media-api/current/.env` (server):
+    - `CORE_APP_ID=<DMAPI app id GUID>`
+    - Optionally: `CORE_AUDIENCE=<GUID>,dailey-media-api`
+  - Restart with correct CWD so dotenv loads: `pm2 restart dmapi-backend --update-env --cwd /opt/dailey-media-api/current`
+- Verify JWKS locally resolves:
+  - `CORE_JWKS_URL=https://core.dailey.cloud/.well-known/jwks.json`
+  - `JWT_ISSUER=https://core.dailey.cloud` (Core also uses `dailey-core-auth`, which is allowed by default)
+- Temporary diagnostics (optional):
+  - `AUTH_LOG_DETAILS=true` to log allowed issuers/audiences and token header/payload summaries.
+  - As a last resort (temporary only): `ALLOW_CORE_ANY_AUD=true` to accept any Core-issued token (issuer+signature only). Remove after audience is aligned.
+
+Re-test:
+```
+# Get token from Core (replace credentials)
+TOK=$(curl -sS -X POST https://core.dailey.cloud/auth/login \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"admin@dailey.cloud","password":"***","app_id":"<GUID>"}' | jq -r .access_token)
+
+# Call DMAPI through nginx
+curl -s -o /dev/null -w 'status=%{http_code}\n' \
+  -H "Authorization: Bearer $TOK" https://media.dailey.cloud/api/buckets
+```
+
+---
+
 ### 🔴 Issue: Vite proxy not updating after configuration change
 
 **Symptoms:**
@@ -159,10 +197,111 @@
 3. Save PM2 configuration:
    ```bash
    pm2 save
-   pm2 startup  # Generate startup script
-   ```
+  pm2 startup  # Generate startup script
+  ```
 
 ---
+
+### 🔴 Issue: 526/SSL error on media.dailey.cloud
+
+Symptoms:
+- Cloudflare shows 526 or browser reports certificate mismatch.
+
+Causes:
+- Nginx presents the wrong certificate (e.g., Grafana’s) on the `media.dailey.cloud` vhost due to SNI/default order.
+
+Fix checklist:
+- Ensure the `media.dailey.cloud` server block listens as the default on 443:
+  ```nginx
+  server {
+    listen 443 ssl http2 default_server;
+    server_name media.dailey.cloud;
+    # ssl_certificate ... for media.dailey.cloud
+  }
+  ```
+- Avoid hosting Grafana under `media.dailey.cloud/grafana`. Use `https://grafana.dailey.cloud` with its own vhost and cert.
+- Test origin and CF:
+  ```bash
+  curl -sk -I -H "Host: media.dailey.cloud" https://127.0.0.1/health
+  curl -s -I https://media.dailey.cloud/health
+  ```
+
+---
+
+### 🔴 Issue: 500 at site root due to rewrite loop
+
+Symptoms:
+- Nginx error: `rewrite or internal redirection cycle while internally redirecting to "/index.html"`
+
+Causes:
+- SPA assets are missing on the active release (`web/dist`), but the vhost `try_files` points to `/index.html`.
+
+Solution:
+1. Ensure the SPA is built and deployed to the active release path (e.g., `/opt/dailey-media-api/current/web/dist`).
+2. Verify Nginx root and `try_files` reference the correct directory.
+3. Reload Nginx and re-test `https://media.dailey.cloud/`.
+
+---
+
+### 🔴 Issue: 500 on POST /api/upload in production
+
+Symptoms:
+- Browser shows 500 when uploading, while GETs like `/api/upload/formats` succeed.
+- PM2 error log contains `{"context":"auth.authenticateToken","message":"fetch failed"}`.
+- No `[id] POST /api/upload - Started` lines appear in the out log for the failing request.
+
+Causes:
+- `DAILEY_CORE_URL` not reachable from the API host, so token validation fetch fails.
+- JWKS URL points to dev (`core.dailey.dev`) while tokens are issued by prod (`core.dailey.cloud`).
+- Proxy not forwarding `Authorization` to the backend, or the client did not send it.
+- Testing the upstream with `https://127.0.0.1:4100` (port 4100 is plain HTTP).
+
+Fix checklist:
+- Ensure production auth env vars are set:
+  - `DAILEY_CORE_URL=https://core.dailey.cloud`
+  - `CORE_JWKS_URL=https://core.dailey.cloud/.well-known/jwks.json`
+  - `JWT_ISSUER=https://core.dailey.cloud`
+  - `JWT_AUDIENCE=dailey-media-api` (or your app ID)
+- Nginx: explicitly forward the header (defensive):
+  - In `/api/` and `/api/upload/` locations add `proxy_set_header Authorization $http_authorization;`
+- Test from the server (use HTTP to the upstream):
+  ```bash
+  curl -s -i -X POST http://127.0.0.1:4100/api/upload \
+    -H "Authorization: Bearer $TOKEN" \
+    -F "file=@/etc/hosts"
+  ```
+- Verify Core and JWKS availability from the server:
+  ```bash
+  curl -s -i "$DAILEY_CORE_URL/api/docs/health"
+  curl -s -i -H "Authorization: Bearer $TOKEN" "$DAILEY_CORE_URL/auth/validate"
+  curl -s -i "$CORE_JWKS_URL"
+  ```
+
+Notes:
+- Auth prefers local JWKS verification and returns 401 on unverifiable tokens to avoid generic 5xx.
+- If using Cloudflare, temporarily disable security for `…/api/upload*` to rule out WAF interference with multipart.
+
+---
+
+### 🔴 Issue: "Not allowed by CORS" on browser requests
+
+Symptoms:
+- Browser POST to `/api/upload` fails with 500 and message `Not allowed by CORS`.
+- Preflight (OPTIONS) may return 403 or lacks expected headers.
+
+Fix checklist:
+- Ensure the site origin is whitelisted:
+  - Add `CORS_ORIGINS=https://media.dailey.cloud` (or your domain) to the API `.env`.
+  - Restart pm2: `pm2 restart dmapi-backend --update-env`.
+- Confirm preflight:
+  ```bash
+  curl -i -X OPTIONS https://<domain>/api/upload \
+    -H "Origin: https://<domain>" \
+    -H "Access-Control-Request-Method: POST" \
+    -H "Access-Control-Request-Headers: authorization,content-type"
+  ```
+- Verify request uses `multipart/form-data` with field name `file`.
+- Ensure proxy forwards `Authorization` so the actual POST is accepted.
 
 ## Debugging Commands
 

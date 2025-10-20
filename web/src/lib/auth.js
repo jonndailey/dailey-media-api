@@ -58,11 +58,14 @@ class DaileyAuth {
     if (!this.token) return null;
     
     try {
-      const response = await fetch(`${this.baseUrl}/auth/validate`, {
-        headers: { 
+      // Validate via DMAPI backend to avoid browser CORS and rely on local JWKS
+      const response = await fetch('/api/auth/validate', {
+        method: 'GET',
+        headers: {
           'Authorization': `Bearer ${this.token}`,
           'X-Application': this.appName
-        }
+        },
+        credentials: 'include'
       });
       
       if (response.ok) {
@@ -174,22 +177,15 @@ class DaileyAuth {
   // Helper method to check if DAILEY CORE is available
   async checkAuthServiceHealth() {
     try {
-      // In development, use proxy (relative URL), in production use direct URL
-      const healthUrl = import.meta.env.DEV ? '/auth/health' : `${this.baseUrl}/health`;
-      
-      const response = await fetch(healthUrl, {
+      // Always use DMAPI same-origin proxy to avoid browser CORS
+      const response = await fetch('/api/core/health', {
         method: 'GET',
-        headers: {
-          'Accept': 'application/json'
-        }
+        headers: { 'Accept': 'application/json' },
+        credentials: 'include'
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        return data.status === 'healthy';
-      }
-      
-      return false;
+      if (!response.ok) return false;
+      const data = await response.json();
+      return data?.status === 'healthy';
     } catch (error) {
       console.error('DAILEY CORE service check failed:', error);
       return false;

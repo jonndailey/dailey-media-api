@@ -74,6 +74,8 @@ curl -H "Authorization: Bearer YOUR_TOKEN" https://api.dailey.dev/api/files
 - `GET /api/files` - List files
 - `GET /api/files/:id` - Get file details
 - `DELETE /api/files/:id` - Delete file
+- Append an `app_id` query parameter when you need the catalog for a specific integration (e.g. `?app_id=castingly`). With auth disabled locally the API defaults to `dailey-media-api`, so explicit `app_id` keeps migrated Castingly data visible.
+- The DMAPI admin UI includes an application selector (top-right) so tenant admins can flip between Castingly and Dailey scopes and see the corresponding buckets/files.
 
 #### Buckets
 - `GET /api/buckets` - List buckets
@@ -149,8 +151,10 @@ dmedia analytics
 
 - [OCR and Text Extraction](./ocr.md)
 - [Document Conversion Service](./conversion.md)
+- [PDF Operations](./pdf.md)
 - [Video Processing Pipeline](./video-processing.md)
 - [Compliance & Privacy](./compliance.md)
+- [Operations Checklist (Core ↔ DMAPI)](./OPS_CHECKLIST.md)
 
 ## Security
 

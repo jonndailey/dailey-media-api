@@ -11,6 +11,18 @@ import { body } from 'express-validator';
 
 const router = express.Router();
 
+// Lightweight token validation using DMAPI's local JWKS verification
+// Returns user/roles derived from the verified JWT in the Authorization header
+router.get('/validate', authenticateToken, (req, res) => {
+  return res.json({
+    success: true,
+    valid: true,
+    user: req.user || null,
+    roles: req.userRoles || [],
+    tenants: req.userTenants || []
+  });
+});
+
 /**
  * @swagger
  * /api/auth/mfa/setup:
