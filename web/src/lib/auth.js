@@ -1,8 +1,9 @@
 // DAILEY CORE Authentication Service for Dailey Media API
 class DaileyAuth {
   constructor(baseUrl = null, appName = 'Dailey Media API') {
-    // In development, use proxy (relative URLs), in production use direct URL
-    this.baseUrl = baseUrl || (import.meta.env.DEV ? '' : 'http://localhost:3002');
+    // In development, use proxy (relative URLs). In production, use env or strict HTTPS default.
+    const coreEnv = import.meta.env.VITE_CORE_AUTH_URL;
+    this.baseUrl = baseUrl || (import.meta.env.DEV ? '' : (coreEnv || 'https://core.dailey.cloud'));
     this.appName = appName;
     this.token = localStorage.getItem('auth_token');
     this.user = null;
@@ -25,7 +26,7 @@ class DaileyAuth {
           email, 
           password,
           app_name: this.appName,  // App is now registered in DAILEY CORE
-          app_id: '77777777-7777-7777-7777-777777777777'  // Dailey Media API UUID
+          app_id: 'ca7c3e96-b8cd-4fa9-8222-30ead3b95186'  // Dailey Media API app ID from Core
         })
       });
       
@@ -140,8 +141,14 @@ class DaileyAuth {
     if (!(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
+    // Prefix API calls with absolute base URL in production (no Vite proxy in preview)
+    let fullUrl = url;
+    if (!import.meta.env.DEV && url.startsWith('/')) {
+      const apiBase = import.meta.env.VITE_MEDIA_API_URL || `${window.location.origin}`;
+      fullUrl = apiBase + url;
+    }
 
-    const response = await fetch(url, {
+    const response = await fetch(fullUrl, {
       ...options,
       headers
     });
@@ -195,3 +202,10 @@ export const daileyAuth = new DaileyAuth();
 
 // Export class for custom instances
 export default DaileyAuth;
+
+// Helper to resolve API URL (for non-authenticated fetches)
+export function resolveApiUrl(path) {
+  if (import.meta.env.DEV) return path;
+  const apiBase = import.meta.env.VITE_MEDIA_API_URL || `${window.location.protocol}//${window.location.hostname}:4100`;
+  return `${apiBase}${path}`;
+}

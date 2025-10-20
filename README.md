@@ -173,10 +173,28 @@ curl http://localhost:5174/api/upload/formats
 - `GET /api/conversion/supported` - Discover supported source/target format combinations
 - `POST /api/conversion/:mediaFileId/convert` - Convert a single media file to another format
 - `POST /api/conversion/batch` - Run a batch of conversions with shared defaults
+- `POST /api/conversion/from-url` - Import a document from a URL and convert in one step
 - `GET /api/conversion/:mediaFileId/jobs` - List conversion history for a media item
 - `GET /api/conversion/jobs/:jobId` - Inspect a specific conversion job record
 
 > Office → PDF conversions rely on LibreOffice (headless). Install `soffice` on the host or set `LIBREOFFICE_BINARY` so the service can locate it. Watermarking and metadata stripping are available when enabled in configuration.
+
+### PDF Operations
+- `GET /api/pdf/capabilities` - List supported PDF operations and parameters
+- `POST /api/pdf/merge` - Merge multiple PDFs into a single document
+- `POST /api/pdf/split/:mediaFileId` - Split a PDF into parts by page ranges
+- `POST /api/pdf/rotate/:mediaFileId` - Rotate selected pages by angle (e.g. 90/180/270)
+- `POST /api/pdf/compress/:mediaFileId` - Compress/optimize PDF (profiles: screen, ebook, prepress)
+- `POST /api/pdf/stamp/:mediaFileId` - Stamp header/footer text, page numbers, and/or an image
+- `POST /api/pdf/watermark/:mediaFileId` - Apply text watermark to selected pages
+- `POST /api/pdf/flatten/:mediaFileId` - Flatten forms (and annotations where possible)
+- `POST /api/pdf/images/:mediaFileId` - Export PDF pages to images (png/jpg, dpi)
+- `POST /api/pdf/security/:mediaFileId` - Set/remove passwords and permissions (Ghostscript)
+- `GET /api/pdf/forms/:mediaFileId/fields` - List PDF form fields (name/type/value)
+- `POST /api/pdf/forms/:mediaFileId/fill` - Fill form fields and optionally flatten
+
+### Image Transform
+- `GET /api/files/:id/transform` - On-demand image resize/format with `width`, `height`, `format`, `quality`, and `fit`
 
 ### Video Processing
 - `GET /api/video/presets` - Inspect available transcoding presets and defaults
@@ -191,6 +209,23 @@ curl http://localhost:5174/api/upload/formats
 - `GET /api/serve/files/:id/content` - Serve file by ID (authenticated)
 - `POST /api/serve/files/:id/public-link` - Generate public access URL
 - `GET /api/serve/public/:token` - Access files via public link
+
+## Production Auth/CORS and Cloudflare
+
+- Frontend → Core (direct): In production the web UI calls DAILEY CORE directly over HTTPS.
+  - Set `web/.env.production`:
+    - `VITE_CORE_AUTH_URL=https://core.dailey.cloud`
+    - `VITE_MEDIA_API_URL=https://media.dailey.cloud`
+  - Ensure CORS on CORE allows `https://media.dailey.cloud` with `credentials: true`.
+  - Handle `OPTIONS` preflight on `/auth/*` and set `Access-Control-Allow-Headers` to include
+    `Content-Type, Authorization, X-Application, X-App-Name, X-Client-Id`.
+
+- Cloudflare SSL/TLS mode: Use “Full (strict)” for both Core and Media domains to prevent redirect loops.
+  - Do not proxy Core via `/core` on the media origin unless you have a specific reason; direct CORS is simpler and safer.
+
+- Nginx (origin) proxy headers for DMAPI:
+  - Always forward `Host, X-Real-IP, X-Forwarded-For, X-Forwarded-Host, X-Forwarded-Proto` to the backend.
+  - Use `try_files $uri $uri/ /index.html;` for the UI.
 
 ## 🛠️ Development Setup
 
