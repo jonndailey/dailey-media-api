@@ -155,6 +155,8 @@ dmedia analytics
 - [Video Processing Pipeline](./video-processing.md)
 - [Compliance & Privacy](./compliance.md)
 - [Operations Checklist (Core ↔ DMAPI)](./OPS_CHECKLIST.md)
+- [Security Overview](./SECURITY.md)
+- [Integration Guide](./INTEGRATION_GUIDE.md)
 
 ## Security
 
