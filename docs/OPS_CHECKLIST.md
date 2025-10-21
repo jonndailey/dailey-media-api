@@ -126,6 +126,31 @@ Note: Using `--set-gtid-purged=OFF` avoids injecting GTIDs during the manual imp
 - SSL mode: Full (strict) for both media and core
 - Purge assets on frontend release: `/assets/*`
 
+## Prometheus + Grafana (optional)
+
+- DMAPI metrics: scrape `https://media.dailey.cloud/metrics` (or internal) — exposes:
+  - `dmapi_http_request_duration_seconds_*` (histogram)
+  - `dmapi_uploads_total`, `dmapi_upload_errors_total`
+  - `dmapi_storage_bytes`, `dmapi_storage_objects`, plus write/delete counters
+- Replica health metrics (via node_exporter textfile):
+  - Install node_exporter on coreapp with `--collector.textfile.directory=/var/lib/node_exporter/textfile`.
+  - Modify `/opt/dailey-core/backend/scripts/replica-health.sh` to emit `/var/lib/node_exporter/textfile/replica.prom` lines:
+    - `mysql_replica_seconds_behind{host="coredb2"} 0`
+    - `mysql_replica_io_running{host="coredb2"} 1`
+    - `mysql_replica_sql_running{host="coredb2"} 1`
+- Grafana dashboards (JSON templates included):
+  - `docs/grafana/dmapi-overview.json`
+  - `docs/grafana/mysql-replication.json`
+- Alerts (Alertmanager):
+  - Replica lag critical:
+    ```yaml
+    - alert: ReplicaLag
+      expr: mysql_replica_seconds_behind{host="coredb2"} > 5
+      for: 2m
+      labels: { severity: critical }
+      annotations: { summary: "MySQL replication lag > 5s" }
+    ```
+
 ## Incident Runbook
 - If login spins or 500s:
   - Check `/api/auth/validate` (should be 200)
