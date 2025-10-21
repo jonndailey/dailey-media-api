@@ -86,13 +86,26 @@ await c.end(); })()"
     - `REPL_SSH_USER=ubuntu`
     - `REPL_SSH_PASS=<ubuntu_sudo_password>`
     - `REPL_SSH_HOSTS=40.160.239.176,40.160.239.175`
-  - PM2 (cron every 2 min):
+- PM2 (cron every 2 min):
     ```bash
     pm2 delete core-replica-health || true
     REPL_SSH_USER=ubuntu REPL_SSH_PASS='<pw>' REPL_SSH_HOSTS='40.160.239.176,40.160.239.175' \
-      pm2 start /opt/dailey-core/backend/scripts/replica-health.js --name core-replica-health --time --update-env --cron '*/2 * * * *' --no-autorestart
+      pm2 start /opt/dailey-core/backend/scripts/replica-health.sh --name core-replica-health --time --update-env --cron '*/2 * * * *' --no-autorestart
     ```
   - Logs show JSON with per-host `{Replica_IO_Running, Replica_SQL_Running, Seconds_Behind}` and master binlog file/pos.
+
+Note: Ensure a read-only monitor exists locally on both DB hosts for SSH-mode checks:
+```sql
+CREATE USER IF NOT EXISTS 'replicator'@'localhost' IDENTIFIED BY '<replicator_password>';
+GRANT REPLICATION CLIENT ON *.* TO 'replicator'@'localhost';
+FLUSH PRIVILEGES;
+```
+On Ubuntu hosts, you can run via root MySQL:
+```bash
+sudo su -
+export MYSQL_PWD=$(cat /root/.mysql_root_pw)
+mysql -uroot -e "CREATE USER IF NOT EXISTS 'replicator'@'localhost' IDENTIFIED BY '<replicator_password>'; GRANT REPLICATION CLIENT ON *.* TO 'replicator'@'localhost'; FLUSH PRIVILEGES;"
+```
 
 ### Seeding an additional database to the replica (while replication running)
 1) On primary (coredb1):
