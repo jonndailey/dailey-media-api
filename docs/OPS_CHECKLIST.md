@@ -77,6 +77,38 @@ await c.end(); })()"
 - `ro=0` on primary; `ro=1` on replicas.
 - If privileges allow, `SHOW REPLICA/SLAVE STATUS` rows > 0 indicates replication configured. Check `Seconds_Behind_Master`.
 
+### Core DB Replication (GTID) — SSH Health Mode
+- Replication is configured coredb1 → coredb2 with GTID and auto-position.
+- We seed both `dailey_core_auth` and `dailey_media` on the replica, then start SQL thread.
+- A lightweight health logger can run on `coreapp` and query DBs via SSH (no MySQL port exposure):
+  - Script path: `/opt/dailey-core/backend/scripts/replica-health.js`
+  - Env (example):
+    - `REPL_SSH_USER=ubuntu`
+    - `REPL_SSH_PASS=<ubuntu_sudo_password>`
+    - `REPL_SSH_HOSTS=40.160.239.176,40.160.239.175`
+  - PM2 (cron every 2 min):
+    ```bash
+    pm2 delete core-replica-health || true
+    REPL_SSH_USER=ubuntu REPL_SSH_PASS='<pw>' REPL_SSH_HOSTS='40.160.239.176,40.160.239.175' \
+      pm2 start /opt/dailey-core/backend/scripts/replica-health.js --name core-replica-health --time --update-env --cron '*/2 * * * *' --no-autorestart
+    ```
+  - Logs show JSON with per-host `{Replica_IO_Running, Replica_SQL_Running, Seconds_Behind}` and master binlog file/pos.
+
+### Seeding an additional database to the replica (while replication running)
+1) On primary (coredb1):
+   ```bash
+   mysqldump --single-transaction --set-gtid-purged=OFF --routines --triggers --events dailey_media | gzip -c > /root/dailey-media.sql.gz
+   ```
+2) Copy to replica (coredb2) and import with SQL thread paused:
+   ```bash
+   mysql -e "STOP REPLICA SQL_THREAD; CREATE DATABASE IF NOT EXISTS dailey_media;"
+   gunzip -c /root/dailey-media.sql.gz | mysql dailey_media
+   mysql -e "START REPLICA SQL_THREAD;"
+   mysql -e "SHOW REPLICA STATUS\\G" | egrep 'Running:|Seconds_Behind'
+   ```
+
+Note: Using `--set-gtid-purged=OFF` avoids injecting GTIDs during the manual import.
+
 ## Cloudflare/SSL
 - SSL mode: Full (strict) for both media and core
 - Purge assets on frontend release: `/assets/*`
@@ -88,4 +120,3 @@ await c.end(); })()"
   - Verify Core `/health` and JWKS; then re-run preflight
 - If Mixed Content warnings:
   - Validate `web/.env.production` via preflight (must fail if any `http://` or IPs appear)
-
