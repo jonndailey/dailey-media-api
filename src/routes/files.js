@@ -712,4 +712,45 @@ router.get('/categories', authenticateToken, requireScope('read'), async (req, r
   }
 });
 
+// Update metadata by storage_key (admin/owner)
+router.patch('/by-storage-key', authenticateToken, requireScope('upload'), async (req, res) => {
+  try {
+    const { storage_key, metadata, categories } = req.body || {}
+    if (!storage_key || typeof storage_key !== 'string') {
+      return res.status(400).json({ success: false, error: 'storage_key is required' })
+    }
+
+    if (!databaseService.isAvailable()) {
+      return res.status(503).json({ success: false, error: 'Database not available' })
+    }
+
+    const file = await databaseService.getMediaFileByStorageKey(storage_key)
+    if (!file) {
+      return res.status(404).json({ success: false, error: 'File not found' })
+    }
+
+    // Permission: owner or admin
+    const isOwner = file.user_id === req.userId
+    const isAdmin = Array.isArray(req.userRoles)
+      ? req.userRoles.some((r) => ['core.admin', 'tenant.admin', 'user.admin'].includes(String(r)))
+      : false
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied' })
+    }
+
+    const currentMeta = typeof file.metadata === 'object' ? file.metadata : {}
+    const nextMeta = metadata && typeof metadata === 'object' ? { ...currentMeta, ...metadata } : currentMeta
+    const currentCats = Array.isArray(file.categories) ? file.categories : []
+    const nextCats = Array.isArray(categories) && categories.length > 0
+      ? Array.from(new Set([...currentCats, ...categories]))
+      : currentCats
+
+    await databaseService.updateMediaFile(file.id, { metadata: nextMeta, categories: nextCats })
+    return res.json({ success: true, id: file.id })
+  } catch (error) {
+    logError(error, { context: 'files.updateByStorageKey' })
+    return res.status(500).json({ success: false, error: 'Failed to update metadata' })
+  }
+})
+
 export default router;
