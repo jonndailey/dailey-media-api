@@ -724,7 +724,24 @@ router.patch('/by-storage-key', authenticateToken, requireScope('upload'), async
       return res.status(503).json({ success: false, error: 'Database not available' })
     }
 
-    let file = await databaseService.getMediaFileByStorageKey(storage_key)
+    let file = null
+    try {
+      file = await databaseService.getMediaFileByStorageKey(storage_key)
+    } catch (e) {
+      // If parsing of older rows fails, attempt an in-place update by storage key
+      try {
+        const categoriesArray = Array.isArray(categories) && categories.length > 0 ? categories : (metadata?.category ? [metadata.category] : undefined)
+        const ok = await databaseService.updateMediaFileByStorageKey(storage_key, {
+          metadata: metadata && typeof metadata === 'object' ? metadata : undefined,
+          categories: categoriesArray
+        })
+        if (ok) {
+          // Consider it updated
+          return res.json({ success: true })
+        }
+      } catch (_) { /* continue to create */ }
+      file = null
+    }
     if (!file) {
       // Upsert: create a minimal media_files row if storage contains the object
       // Parse storage_key: files/<user_id>/<bucket_id>/<folder>/<name>

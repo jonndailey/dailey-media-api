@@ -657,6 +657,56 @@ class DatabaseService {
     }
   }
 
+  async updateMediaFileByStorageKey(storageKey, updates) {
+    try {
+      if (!this.isAvailable()) {
+        throw new Error('Database not available');
+      }
+
+      if (!storageKey) throw new Error('storageKey is required')
+
+      const allowedFields = [
+        'title', 'description', 'collection_id', 'processing_status', 'processing_error',
+        'is_public', 'keywords', 'categories', 'metadata', 'location_name'
+      ];
+
+      const updatePairs = [];
+      const params = [];
+
+      for (const [field, value] of Object.entries(updates || {})) {
+        if (allowedFields.includes(field) && value !== undefined) {
+          updatePairs.push(`${field} = ?`);
+
+          if (field === 'categories' || field === 'metadata') {
+            params.push(JSON.stringify(value));
+          } else {
+            params.push(value);
+          }
+        }
+      }
+
+      if (updatePairs.length === 0) {
+        return false;
+      }
+
+      updatePairs.push('updated_at = ?');
+      params.push(new Date().toISOString());
+      params.push(storageKey);
+
+      const query = `
+        UPDATE media_files
+        SET ${updatePairs.join(', ')}
+        WHERE storage_key = ? AND is_deleted = FALSE
+      `;
+
+      const result = await db.query(query, params);
+      return result.affectedRows > 0;
+    } catch (error) {
+      logError(error, { context: 'databaseService.updateMediaFileByStorageKey', storageKey });
+      throw error;
+    }
+  }
+
   async deleteMediaFile(id, softDelete = true) {
     try {
       if (!this.isAvailable()) {
