@@ -636,8 +636,7 @@ class DatabaseService {
         return false;
       }
 
-      updatePairs.push('updated_at = ?');
-      params.push(new Date().toISOString());
+      updatePairs.push('updated_at = CURRENT_TIMESTAMP');
       params.push(id);
 
       const query = `
@@ -689,8 +688,7 @@ class DatabaseService {
         return false;
       }
 
-      updatePairs.push('updated_at = ?');
-      params.push(new Date().toISOString());
+      updatePairs.push('updated_at = CURRENT_TIMESTAMP');
       params.push(storageKey);
 
       const query = `
