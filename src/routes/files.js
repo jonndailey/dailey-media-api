@@ -792,7 +792,8 @@ router.patch('/by-storage-key', authenticateToken, requireScope('upload'), async
       }
       try {
         const id = await databaseService.createMediaFile(createPayload)
-        file = await databaseService.getMediaFile(id)
+        // Avoid fetching/parsing immediately; use a minimal object to proceed
+        file = { id, user_id: userId, metadata: createPayload.metadata, categories: createPayload.categories }
       } catch (e) {
         logError(e, { context: 'files.updateByStorageKey.create', storage_key })
         return res.status(500).json({ success: false, error: 'Failed to create record' })
