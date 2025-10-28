@@ -724,9 +724,79 @@ router.patch('/by-storage-key', authenticateToken, requireScope('upload'), async
       return res.status(503).json({ success: false, error: 'Database not available' })
     }
 
-    const file = await databaseService.getMediaFileByStorageKey(storage_key)
+    let file = await databaseService.getMediaFileByStorageKey(storage_key)
     if (!file) {
-      return res.status(404).json({ success: false, error: 'File not found' })
+      // Upsert: create a minimal media_files row if storage contains the object
+      // Parse storage_key: files/<user_id>/<bucket_id>/<folder>/<name>
+      const parts = String(storage_key).split('/')
+      if (!(parts.length >= 5 && parts[0] === 'files')) {
+        return res.status(400).json({ success: false, error: 'Invalid storage_key format' })
+      }
+      const userId = parts[1]
+      const bucketId = parts[2]
+      const fileName = parts[parts.length - 1]
+      const folderPath = parts.slice(3, parts.length - 1).join('/')
+      const appId = (req.query.app_id || req.appId || 'castingly')
+      const isPublic = /-public$/i.test(bucketId)
+      const ext = (fileName.split('.').pop() || '').toLowerCase()
+      const mime = storageService.getContentType(fileName)
+      const baseMeta = {
+        bucketId,
+        folderPath,
+        access: isPublic ? 'public' : 'private',
+        bucketAccess: isPublic ? 'public' : 'private',
+        appId,
+        userId,
+      }
+      const mergedMeta = metadata && typeof metadata === 'object' ? { ...baseMeta, ...metadata } : baseMeta
+      const createPayload = {
+        storage_key,
+        original_filename: fileName,
+        title: null,
+        description: null,
+        user_id: userId,
+        application_id: appId,
+        collection_id: null,
+        file_size: 0,
+        mime_type: mime,
+        file_extension: ext,
+        content_hash: null,
+        width: null,
+        height: null,
+        duration_seconds: null,
+        frame_rate: null,
+        color_space: null,
+        has_transparency: false,
+        camera_make: null,
+        camera_model: null,
+        lens_model: null,
+        focal_length: null,
+        aperture: null,
+        shutter_speed: null,
+        iso_speed: null,
+        flash_used: null,
+        white_balance: null,
+        exposure_compensation: null,
+        metering_mode: null,
+        latitude: null,
+        longitude: null,
+        altitude: null,
+        location_name: null,
+        taken_at: null,
+        processing_status: 'completed',
+        is_public: isPublic,
+        keywords: null,
+        categories: Array.isArray(categories) && categories.length > 0 ? categories : [],
+        metadata: mergedMeta,
+        exif_data: {},
+      }
+      try {
+        const id = await databaseService.createMediaFile(createPayload)
+        file = await databaseService.getMediaFile(id)
+      } catch (e) {
+        logError(e, { context: 'files.updateByStorageKey.create', storage_key })
+        return res.status(500).json({ success: false, error: 'Failed to create record' })
+      }
     }
 
     // Permission: owner or admin
