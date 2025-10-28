@@ -4,6 +4,7 @@ import databaseService from '../services/databaseService.js';
 import storageService from '../services/storageService.js';
 import fileService from '../services/fileService.js';
 import { logInfo, logError } from '../middleware/logger.js';
+import imageService from '../services/imageService.js';
 
 const router = express.Router();
 
@@ -19,21 +20,67 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
       category, // image, video, document, code, etc
       mime_type,
       min_size,
-      max_size
+      max_size,
+      user_id: queryUserId,
+      storage_key
     } = req.query;
 
-    // If database is available, use it
+    // If database is available, use it; otherwise or on failure, fall back to storage scan
     if (databaseService.isAvailable()) {
-      const filters = {
-        user_id: req.userId,
-        application_id: req.appId
-      };
+      const applicationId = req.query.app_id || req.appId;
+
+      // Fast path: lookup by storage_key returns a single DB record (when present)
+      if (storage_key && typeof storage_key === 'string') {
+        try {
+          const file = await databaseService.getMediaFileByStorageKey(storage_key);
+          if (!file) {
+            return res.json({ success: true, files: [], pagination: { total: 0, limit: 0, offset: 0, has_more: false } });
+          }
+          const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
+          const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
+          const thumbnailAccess = file.thumbnail_key
+            ? await storageService.getAccessDetails(file.thumbnail_key, { access: file.is_public ? 'public' : 'private' })
+            : { publicUrl: null, signedUrl: null, access: accessDetails.access };
+          const enriched = {
+            ...file,
+            category: typeInfo.category,
+            access: accessDetails.access,
+            public_url: accessDetails.publicUrl,
+            signed_url: accessDetails.signedUrl,
+            thumbnail_url: thumbnailAccess.publicUrl,
+            thumbnail_signed_url: thumbnailAccess.signedUrl
+          };
+          return res.json({ success: true, files: [enriched], pagination: { total: 1, limit: 1, offset: 0, has_more: false } });
+        } catch (e) {
+          // fall through to normal listing
+        }
+      }
+
+      const filters = {};
+      if (applicationId) {
+        filters.application_id = applicationId;
+      }
+      // Honor explicit user_id filter; otherwise fall back to token subject if present
+      if (queryUserId) {
+        filters.user_id = queryUserId;
+      } else if (req.userId) {
+        filters.user_id = req.userId;
+      }
 
       if (search) filters.search = search;
       if (category) filters.category = category;
       if (mime_type) filters.mime_type = mime_type;
-      if (min_size) filters.min_size = parseInt(min_size);
-      if (max_size) filters.max_size = parseInt(max_size);
+
+      const minSizeValue = min_size ? parseInt(min_size, 10) : undefined;
+      const maxSizeValue = max_size ? parseInt(max_size, 10) : undefined;
+
+      if (typeof minSizeValue === 'number' && !Number.isNaN(minSizeValue)) {
+        filters.min_size = minSizeValue;
+      }
+
+      if (typeof maxSizeValue === 'number' && !Number.isNaN(maxSizeValue)) {
+        filters.max_size = maxSizeValue;
+      }
 
       const pagination = {
         limit: Math.min(parseInt(limit), 100),
@@ -42,52 +89,116 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
         orderDirection: order_direction
       };
 
-      const results = await databaseService.searchMediaFiles(filters, pagination);
-      const totalCount = await databaseService.countMediaFiles(filters);
+      try {
+        const { files, total: totalCount, hasMore } = await databaseService.listMediaFiles(filters, pagination);
 
-      // Add URLs and type info to each file
-      const filesWithMetadata = await Promise.all(results.map(async file => {
-        const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
-        const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
-        const thumbnailAccess = file.thumbnail_key
-          ? await storageService.getAccessDetails(file.thumbnail_key, { access: file.is_public ? 'public' : 'private' })
-          : { publicUrl: null, signedUrl: null, access: accessDetails.access };
+        const filesWithMetadata = await Promise.all(files.map(async file => {
+          const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
+          const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
+          const thumbnailAccess = file.thumbnail_key
+            ? await storageService.getAccessDetails(file.thumbnail_key, { access: file.is_public ? 'public' : 'private' })
+            : { publicUrl: null, signedUrl: null, access: accessDetails.access };
 
-        return {
-          ...file,
-          category: typeInfo.category,
-          access: accessDetails.access,
-          public_url: accessDetails.publicUrl,
-          signed_url: accessDetails.signedUrl,
-          thumbnail_url: thumbnailAccess.publicUrl,
-          thumbnail_signed_url: thumbnailAccess.signedUrl
-        };
-      }));
+          return {
+            ...file,
+            category: typeInfo.category,
+            access: accessDetails.access,
+            public_url: accessDetails.publicUrl,
+            signed_url: accessDetails.signedUrl,
+            thumbnail_url: thumbnailAccess.publicUrl,
+            thumbnail_signed_url: thumbnailAccess.signedUrl
+          };
+        }));
 
-      res.json({
-        success: true,
-        files: filesWithMetadata,
-        pagination: {
-          total: totalCount,
-          limit: pagination.limit,
-          offset: pagination.offset,
-          has_more: (pagination.offset + results.length) < totalCount
-        }
-      });
+        return res.json({
+          success: true,
+          files: filesWithMetadata,
+          pagination: {
+            total: totalCount,
+            limit: pagination.limit,
+            offset: pagination.offset,
+            has_more: hasMore
+          }
+        });
+      } catch (dbError) {
+        // Fall back to storage scan if DB listing fails
+        logError(dbError, { context: 'files.list.db', applicationId, userId: req.userId });
+      }
     } else {
       // Return empty list if database not available
-      res.json({
-        success: true,
-        files: [],
-        pagination: {
-          total: 0,
-          limit: parseInt(limit),
-          offset: parseInt(offset),
-          has_more: false
-        },
-        message: 'Database not configured. Files are stored but not indexed.'
-      });
+      // no immediate return; continue to storage fallback below
     }
+
+    // Storage fallback: scan likely bucket/folder paths to provide a best-effort listing
+    const userId = req.userId;
+    const applicationId = req.query.app_id || req.appId;
+    const candidateBuckets = Array.from(new Set([
+      // Application-aware buckets (Castingly)
+      ...(applicationId ? [`${applicationId}-public`, `${applicationId}-private`] : []),
+      // Common buckets
+      'castingly-public', 'castingly-private', 'default'
+    ]));
+
+    const candidatePaths = [];
+    // Common Castingly layout
+    if (userId) {
+      candidatePaths.push('', 'actors', `actors/${userId}`,
+        `actors/${userId}/headshots`, `actors/${userId}/reels`, `actors/${userId}/resume`,
+        `actors/${userId}/resumes`, `actors/${userId}/voice-over`, `actors/${userId}/voice_over`,
+        `actors/${userId}/self-tapes`, `actors/${userId}/self_tapes`, `actors/${userId}/documents`,
+        `actors/${userId}/misc`
+      );
+    } else {
+      candidatePaths.push('');
+    }
+
+    const collected = [];
+    for (const bucketId of candidateBuckets) {
+      for (const folderPath of candidatePaths) {
+        try {
+          const items = await storageService.listBucketFolder(userId || 'system', bucketId, folderPath);
+          for (const it of items) {
+            if (it && it.is_folder === false) {
+              const typeInfo = fileService.getFileTypeInfo(it.original_filename || it.name || it.id || '');
+              collected.push({
+                id: it.id || it.name,
+                original_filename: it.original_filename || it.name,
+                file_size: it.file_size,
+                mime_type: it.mime_type || typeInfo.mime,
+                uploaded_at: it.uploaded_at || it.created_at || new Date().toISOString(),
+                storage_key: it.storage_key,
+                access: it.access,
+                public_url: it.public_url,
+                signed_url: it.signed_url,
+                bucket_id: bucketId,
+                folder_path: it.folder_path || folderPath,
+                category: typeInfo.category,
+              });
+            }
+          }
+        } catch (_) {
+          // ignore per-path errors
+        }
+      }
+      if (collected.length >= parseInt(limit)) break;
+    }
+
+    // Apply pagination on collected
+    const start = parseInt(offset) || 0;
+    const end = start + Math.min(parseInt(limit) || 24, 100);
+    const page = collected.slice(start, end);
+
+    return res.json({
+      success: true,
+      files: page,
+      pagination: {
+        total: collected.length,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        has_more: end < collected.length
+      },
+      fallback: true
+    });
   } catch (error) {
     logError(error, { 
       context: 'files.list',
@@ -169,6 +280,62 @@ router.get('/:id', authenticateToken, requireScope('read'), async (req, res) => 
       success: false,
       error: 'Failed to retrieve file'
     });
+  }
+});
+
+// Transform image on demand and stream
+router.get('/:id/transform', authenticateToken, requireScope('read'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { width, height, quality = 85, format = 'jpeg', fit = 'inside' } = req.query;
+
+    if (!databaseService.isAvailable()) {
+      return res.status(503).json({ success: false, error: 'Database not available' });
+    }
+
+    const file = await databaseService.getMediaFile(id);
+    if (!file) {
+      return res.status(404).json({ success: false, error: 'File not found' });
+    }
+
+    // Permission check
+    const isOwner = file.user_id === req.userId;
+    const isAdmin = Array.isArray(req.userRoles)
+      ? req.userRoles.some(role => ['core.admin', 'tenant.admin', 'user.admin'].includes(role))
+      : false;
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
+    if (typeInfo.category !== 'image' || !typeInfo.isSupported) {
+      return res.status(400).json({ success: false, error: 'Transform only supported for images' });
+    }
+
+    const { buffer, contentType, size } = await imageService.transformImage(file.storage_key, {
+      width,
+      height,
+      quality,
+      format,
+      fit
+    });
+
+    // Basic caching headers
+    const etag = `W/\"${Buffer.from(`${file.id}:${file.storage_key}:${width||''}x${height||''}:${quality}:${format}:${fit}`).toString('base64')}\"`;
+    res.setHeader('Content-Type', contentType || 'application/octet-stream');
+    res.setHeader('Content-Length', size);
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', file.is_public ? 'public, max-age=86400' : 'private, max-age=0, no-store');
+
+    // Conditional request support
+    if (req.headers['if-none-match'] === etag) {
+      return res.status(304).end();
+    }
+
+    res.status(200).send(buffer);
+  } catch (error) {
+    logError(error, { context: 'files.transform', id: req.params.id, query: req.query });
+    res.status(500).json({ success: false, error: 'Failed to transform image' });
   }
 });
 
@@ -412,13 +579,16 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
         offset: parseInt(offset)
       };
 
-      const results = await databaseService.searchMediaFiles(filters, pagination);
-      const totalCount = await databaseService.countMediaFiles(filters);
+      const {
+        files,
+        total: totalCount,
+        hasMore
+      } = await databaseService.listMediaFiles(filters, pagination);
 
       res.json({
         success: true,
         query: q,
-        results: await Promise.all(results.map(async file => {
+        results: await Promise.all(files.map(async file => {
           const typeInfo = fileService.getFileTypeInfo(file.original_filename || file.storage_key);
           const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
           return {
@@ -433,7 +603,7 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
           total: totalCount,
           limit: pagination.limit,
           offset: pagination.offset,
-          has_more: (pagination.offset + results.length) < totalCount
+          has_more: hasMore
         }
       });
     } else {
