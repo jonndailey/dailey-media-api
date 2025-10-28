@@ -266,10 +266,10 @@ class DatabaseService {
 
       const media = results[0];
       
-      // Parse JSON fields
-      media.categories = JSON.parse(media.categories || '[]');
-      media.metadata = JSON.parse(media.metadata || '{}');
-      media.exif_data = JSON.parse(media.exif_data || '{}');
+      // Parse JSON fields safely (tolerate legacy bad JSON)
+      media.categories = this.safeParseJson(media.categories, []);
+      media.metadata = this.safeParseJson(media.metadata, {});
+      media.exif_data = this.safeParseJson(media.exif_data, {});
 
       return media;
 
@@ -298,10 +298,10 @@ class DatabaseService {
 
       const media = results[0];
       
-      // Parse JSON fields
-      media.categories = JSON.parse(media.categories || '[]');
-      media.metadata = JSON.parse(media.metadata || '{}');
-      media.exif_data = JSON.parse(media.exif_data || '{}');
+      // Parse JSON fields safely
+      media.categories = this.safeParseJson(media.categories, []);
+      media.metadata = this.safeParseJson(media.metadata, {});
+      media.exif_data = this.safeParseJson(media.exif_data, {});
 
       return media;
 
@@ -332,9 +332,9 @@ class DatabaseService {
       }
 
       const media = results[0];
-      media.categories = JSON.parse(media.categories || '[]');
-      media.metadata = JSON.parse(media.metadata || '{}');
-      media.exif_data = JSON.parse(media.exif_data || '{}');
+      media.categories = this.safeParseJson(media.categories, []);
+      media.metadata = this.safeParseJson(media.metadata, {});
+      media.exif_data = this.safeParseJson(media.exif_data, {});
 
       return media;
 
