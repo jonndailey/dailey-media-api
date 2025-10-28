@@ -355,12 +355,14 @@ router.put('/:id', authenticateToken, requireScope('upload'), async (req, res) =
         });
       }
 
-      // Check permissions
-      if (file.user_id !== req.userId && !req.apiKey.permissions.includes('admin')) {
-        return res.status(403).json({
-          success: false,
-          error: 'Access denied'
-        });
+      // Check permissions: owner or admin role or API key admin
+      const isOwner = file.user_id === req.userId
+      const isAdminRole = Array.isArray(req.userRoles)
+        ? req.userRoles.some(r => ['core.admin', 'tenant.admin', 'user.admin'].includes(String(r)))
+        : false
+      const isApiKeyAdmin = req.apiKey && Array.isArray(req.apiKey.permissions) && req.apiKey.permissions.includes('admin')
+      if (!isOwner && !isAdminRole && !isApiKeyAdmin) {
+        return res.status(403).json({ success: false, error: 'Access denied' })
       }
 
       // Update allowed fields
