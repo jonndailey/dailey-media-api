@@ -32,11 +32,149 @@ class DatabaseService {
     return db.isAvailable();
   }
 
+  // Analytics operations
+  async recordAnalyticsEvent({ mediaFileId, eventType, userId = null, applicationId = null, ip = null, userAgent = null, referer = null, variantType = null, metadata = {} }) {
+    try {
+      if (!this.isAvailable()) {
+        throw new Error('Database not available');
+      }
+
+      const q = `
+        INSERT INTO media_analytics (
+          media_file_id, event_type, user_id, application_id, ip_address, user_agent, referer, variant_type, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      const params = [
+        mediaFileId,
+        eventType,
+        userId || null,
+        applicationId || null,
+        ip || null,
+        userAgent || null,
+        referer || null,
+        variantType || null,
+        JSON.stringify(metadata || {})
+      ];
+      await db.query(q, params);
+      return true;
+    } catch (error) {
+      logError(error, { context: 'databaseService.recordAnalyticsEvent', mediaFileId, eventType });
+      throw error;
+    }
+  }
+
+  async getOverviewStats() {
+    try {
+      if (!this.isAvailable()) {
+        return null;
+      }
+
+      const filesRows = await db.query('SELECT COUNT(*) AS totalFiles, COALESCE(SUM(file_size),0) AS totalSize FROM media_files');
+      const accessRows = await db.query("SELECT COUNT(*) AS totalAccesses, COUNT(DISTINCT user_id) AS uniqueUsers FROM media_analytics WHERE event_type IN ('view','download')");
+
+      return {
+        totalFiles: Number(filesRows?.[0]?.totalFiles || 0),
+        totalSize: Number(filesRows?.[0]?.totalSize || 0),
+        totalAccesses: Number(accessRows?.[0]?.totalAccesses || 0),
+        uniqueUsers: Number(accessRows?.[0]?.uniqueUsers || 0)
+      };
+    } catch (error) {
+      logError(error, { context: 'databaseService.getOverviewStats' });
+      throw error;
+    }
+  }
+
+  async getDailyUploadsSince(startDate) {
+    try {
+      if (!this.isAvailable()) return [];
+      const rows = await db.query(
+        'SELECT DATE(uploaded_at) AS day, COUNT(*) AS uploads, COALESCE(SUM(file_size),0) AS total_size FROM media_files WHERE uploaded_at >= ? GROUP BY day ORDER BY day ASC',
+        [startDate]
+      );
+      return rows.map(r => ({ day: r.day, uploads: Number(r.uploads || 0), totalSize: Number(r.total_size || 0) }));
+    } catch (error) {
+      logError(error, { context: 'databaseService.getDailyUploadsSince' });
+      throw error;
+    }
+  }
+
+  async getDailyAccessesSince(startDate) {
+    try {
+      if (!this.isAvailable()) return [];
+      const rows = await db.query(
+        "SELECT DATE(timestamp) AS day, COUNT(*) AS accesses, COALESCE(SUM(COALESCE(JSON_EXTRACT(metadata, '$.bytes'), 0)),0) AS bandwidth, COUNT(DISTINCT user_id) AS uniqueUsers FROM media_analytics WHERE timestamp >= ? AND event_type IN ('view','download') GROUP BY day ORDER BY day ASC",
+        [startDate]
+      );
+      return rows.map(r => ({ day: r.day, accesses: Number(r.accesses || 0), bandwidth: Number(r.bandwidth || 0), uniqueUsers: Number(r.uniqueUsers || 0) }));
+    } catch (error) {
+      logError(error, { context: 'databaseService.getDailyAccessesSince' });
+      throw error;
+    }
+  }
+
+  async getHourlyAccessesSince(startDate) {
+    try {
+      if (!this.isAvailable()) return Array(24).fill(0);
+      const rows = await db.query(
+        "SELECT HOUR(timestamp) AS hour, COUNT(*) AS cnt FROM media_analytics WHERE timestamp >= ? AND event_type IN ('view','download') GROUP BY HOUR(timestamp) ORDER BY hour",
+        [startDate]
+      );
+      const arr = Array(24).fill(0);
+      rows.forEach(r => { const h = Number(r.hour); if (!Number.isNaN(h) && h >= 0 && h <= 23) arr[h] = Number(r.cnt || 0); });
+      return arr;
+    } catch (error) {
+      logError(error, { context: 'databaseService.getHourlyAccessesSince' });
+      throw error;
+    }
+  }
+
+  async getTopFilesSince(startDate, limit = 5) {
+    try {
+      if (!this.isAvailable()) return [];
+      const rows = await db.query(
+        'SELECT media_file_id, COUNT(*) AS accesses, COUNT(DISTINCT user_id) AS uniqueUsers, MAX(timestamp) AS lastAccessed FROM media_analytics WHERE timestamp >= ? AND event_type IN (\'view\',\'download\') GROUP BY media_file_id ORDER BY accesses DESC LIMIT ?',
+        [startDate, Number(limit)]
+      );
+      return rows;
+    } catch (error) {
+      logError(error, { context: 'databaseService.getTopFilesSince' });
+      throw error;
+    }
+  }
+
+  async getFileTypesBreakdown() {
+    try {
+      if (!this.isAvailable()) return [];
+      // Approximate categories from mime types
+      const rows = await db.query('SELECT mime_type, COUNT(*) AS cnt, COALESCE(SUM(file_size),0) AS size FROM media_files GROUP BY mime_type');
+      return rows.map(r => ({ mimeType: r.mime_type, count: Number(r.cnt || 0), size: Number(r.size || 0) }));
+    } catch (error) {
+      logError(error, { context: 'databaseService.getFileTypesBreakdown' });
+      throw error;
+    }
+  }
+
   // Media Files operations
   async createMediaFile(mediaData) {
     try {
       if (!this.isAvailable()) {
         throw new Error('Database not available');
+      }
+
+      // Ensure user exists to satisfy FK constraints
+      try {
+        await db.query(
+          `INSERT IGNORE INTO users (id, external_id, email, display_name, metadata)
+           VALUES (?, ?, ?, ?, JSON_OBJECT('source','dmapi'))`,
+          [
+            mediaData.user_id,
+            mediaData.user_id,
+            mediaData.user_email || null,
+            mediaData.user_name || null
+          ]
+        );
+      } catch (ensureErr) {
+        logError(ensureErr, { context: 'databaseService.ensureUser', userId: mediaData.user_id });
       }
 
       const id = nanoid();
@@ -173,6 +311,39 @@ class DatabaseService {
     }
   }
 
+  async getMediaFileByContentHash(contentHash) {
+    try {
+      if (!this.isAvailable()) {
+        return null;
+      }
+
+      const query = `
+        SELECT *
+        FROM media_files
+        WHERE content_hash = ?
+          AND is_deleted = FALSE
+        LIMIT 1
+      `;
+
+      const results = await db.query(query, [contentHash]);
+
+      if (!results.length) {
+        return null;
+      }
+
+      const media = results[0];
+      media.categories = JSON.parse(media.categories || '[]');
+      media.metadata = JSON.parse(media.metadata || '{}');
+      media.exif_data = JSON.parse(media.exif_data || '{}');
+
+      return media;
+
+    } catch (error) {
+      logError(error, { context: 'databaseService.getMediaFileByContentHash', contentHash });
+      throw error;
+    }
+  }
+
   async listMediaFiles(filters = {}, pagination = {}) {
     try {
       if (!this.isAvailable()) {
@@ -193,7 +364,10 @@ class DatabaseService {
         max_height,
         start_date,
         end_date,
-        tags
+        tags,
+        min_size,
+        max_size,
+        category
       } = filters;
 
       const {
@@ -203,55 +377,49 @@ class DatabaseService {
         orderDirection = 'DESC'
       } = pagination;
 
-      // Build the base query
-      let baseQuery = `
-        SELECT 
-          mf.*,
-          COUNT(*) OVER() as total_count
-        FROM media_files mf
-        WHERE mf.is_deleted = FALSE
-      `;
-
+      // Build the base filter fragment (reused for count + page queries)
+      let where = `WHERE mf.is_deleted = FALSE`;
+      
       const params = [];
 
       // Add filters
       if (user_id) {
-        baseQuery += ` AND mf.user_id = ?`;
+        where += ` AND mf.user_id = ?`;
         params.push(user_id);
       }
 
       if (application_id) {
-        baseQuery += ` AND mf.application_id = ?`;
+        where += ` AND mf.application_id = ?`;
         params.push(application_id);
       }
 
       if (collection_id) {
-        baseQuery += ` AND mf.collection_id = ?`;
+        where += ` AND mf.collection_id = ?`;
         params.push(collection_id);
       }
 
       if (mime_type) {
         if (Array.isArray(mime_type)) {
-          baseQuery += ` AND mf.mime_type IN (${mime_type.map(() => '?').join(', ')})`;
+          where += ` AND mf.mime_type IN (${mime_type.map(() => '?').join(', ')})`;
           params.push(...mime_type);
         } else {
-          baseQuery += ` AND mf.mime_type LIKE ?`;
+          where += ` AND mf.mime_type LIKE ?`;
           params.push(`${mime_type}%`);
         }
       }
 
       if (processing_status) {
-        baseQuery += ` AND mf.processing_status = ?`;
+        where += ` AND mf.processing_status = ?`;
         params.push(processing_status);
       }
 
       if (is_public !== undefined) {
-        baseQuery += ` AND mf.is_public = ?`;
+        where += ` AND mf.is_public = ?`;
         params.push(is_public);
       }
 
       if (search) {
-        baseQuery += ` AND (
+        where += ` AND (
           MATCH(mf.original_filename, mf.title, mf.description, mf.keywords) AGAINST(? IN NATURAL LANGUAGE MODE)
           OR mf.original_filename LIKE ?
           OR mf.title LIKE ?
@@ -260,38 +428,56 @@ class DatabaseService {
       }
 
       if (min_width) {
-        baseQuery += ` AND mf.width >= ?`;
+        where += ` AND mf.width >= ?`;
         params.push(min_width);
       }
 
       if (max_width) {
-        baseQuery += ` AND mf.width <= ?`;
+        where += ` AND mf.width <= ?`;
         params.push(max_width);
       }
 
       if (min_height) {
-        baseQuery += ` AND mf.height >= ?`;
+        where += ` AND mf.height >= ?`;
         params.push(min_height);
       }
 
       if (max_height) {
-        baseQuery += ` AND mf.height <= ?`;
+        where += ` AND mf.height <= ?`;
         params.push(max_height);
       }
 
       if (start_date) {
-        baseQuery += ` AND mf.uploaded_at >= ?`;
+        where += ` AND mf.uploaded_at >= ?`;
         params.push(start_date);
       }
 
       if (end_date) {
-        baseQuery += ` AND mf.uploaded_at <= ?`;
+        where += ` AND mf.uploaded_at <= ?`;
         params.push(end_date);
+      }
+
+      if (min_size) {
+        where += ` AND mf.file_size >= ?`;
+        params.push(parseInt(min_size));
+      }
+
+      if (max_size) {
+        where += ` AND mf.file_size <= ?`;
+        params.push(parseInt(max_size));
+      }
+
+      if (category) {
+        where += ` AND (
+          JSON_CONTAINS(mf.categories, JSON_QUOTE(?))
+          OR JSON_EXTRACT(mf.metadata, '$.category') = ?
+        )`;
+        params.push(category, category);
       }
 
       // Add tags filter if provided
       if (tags && tags.length > 0) {
-        baseQuery += ` AND mf.id IN (
+        where += ` AND mf.id IN (
           SELECT mft.media_file_id 
           FROM media_file_tags mft 
           JOIN media_tags mt ON mft.tag_id = mt.id 
@@ -307,31 +493,115 @@ class DatabaseService {
       const orderColumn = validOrderBy.includes(orderBy) ? orderBy : 'uploaded_at';
       const direction = orderDirection.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-      const finalQuery = `
-        ${baseQuery}
+      // Count total separately (avoids COUNT(*) OVER issues)
+      const countQuery = `SELECT COUNT(*) AS total FROM media_files mf ${where}`;
+      const countRows = await db.query(countQuery, params);
+      const total = parseInt(countRows?.[0]?.total || 0);
+
+      // Page query
+      const pageQuery = `
+        SELECT mf.*
+        FROM media_files mf
+        ${where}
         ORDER BY mf.${orderColumn} ${direction}
         LIMIT ? OFFSET ?
       `;
 
-      params.push(parseInt(limit), parseInt(offset));
+      const pageParams = params.slice();
+      pageParams.push(parseInt(limit), parseInt(offset));
+      const results = await db.query(pageQuery, pageParams);
 
-      const results = await db.query(finalQuery, params);
+      const files = results.map(row => ({
+        ...row,
+        categories: JSON.parse(row.categories || '[]'),
+        metadata: JSON.parse(row.metadata || '{}'),
+        exif_data: JSON.parse(row.exif_data || '{}'),
+      }));
 
-      const files = results.map(row => {
-        const { total_count, ...media } = row;
-        media.categories = JSON.parse(media.categories || '[]');
-        media.metadata = JSON.parse(media.metadata || '{}');
-        media.exif_data = JSON.parse(media.exif_data || '{}');
-        return media;
-      });
-
-      const total = results.length > 0 ? parseInt(results[0].total_count) : 0;
       const hasMore = offset + limit < total;
 
       return { files, total, hasMore };
 
     } catch (error) {
       logError(error, { context: 'databaseService.listMediaFiles', filters, pagination });
+      throw error;
+    }
+  }
+
+  async listBucketsByApplication(applicationId) {
+    try {
+      if (!this.isAvailable() || !applicationId) {
+        return [];
+      }
+
+      const query = `
+        SELECT
+          COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.bucketId')), ''), 'default') AS bucket_id,
+          COUNT(*) AS file_count,
+          MIN(uploaded_at) AS first_uploaded_at,
+          MAX(uploaded_at) AS last_uploaded_at,
+          MAX(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.bucketAccess'))) AS bucket_access
+        FROM media_files
+        WHERE application_id = ?
+          AND is_deleted = FALSE
+        GROUP BY bucket_id
+        ORDER BY bucket_id ASC
+      `;
+
+      const rows = await db.query(query, [applicationId]);
+
+      return rows.map(row => {
+        const bucketId = row.bucket_id || 'default';
+        const access = typeof row.bucket_access === 'string'
+          ? row.bucket_access.toLowerCase()
+          : '';
+
+        return {
+          id: bucketId,
+          name: bucketId,
+          description: `Bucket: ${bucketId}`,
+          is_public: access === 'public',
+          file_count: Number(row.file_count) || 0,
+          created_at: row.first_uploaded_at,
+          updated_at: row.last_uploaded_at
+        };
+      });
+    } catch (error) {
+      logError(error, { context: 'databaseService.listBucketsByApplication', applicationId });
+      throw error;
+    }
+  }
+
+  async getBucketUsersByApplication(applicationId, bucketId) {
+    try {
+      if (!this.isAvailable() || !applicationId || !bucketId) {
+        return [];
+      }
+
+      const query = `
+        SELECT
+          user_id,
+          COUNT(*) AS file_count,
+          MIN(uploaded_at) AS first_uploaded_at,
+          MAX(uploaded_at) AS last_uploaded_at
+        FROM media_files
+        WHERE application_id = ?
+          AND is_deleted = FALSE
+          AND COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.bucketId')), ''), 'default') = ?
+        GROUP BY user_id
+        ORDER BY last_uploaded_at DESC
+      `;
+
+      const rows = await db.query(query, [applicationId, bucketId]);
+
+      return rows.map(row => ({
+        user_id: row.user_id,
+        file_count: Number(row.file_count) || 0,
+        first_uploaded_at: row.first_uploaded_at,
+        last_uploaded_at: row.last_uploaded_at
+      }));
+    } catch (error) {
+      logError(error, { context: 'databaseService.getBucketUsersByApplication', applicationId, bucketId });
       throw error;
     }
   }
