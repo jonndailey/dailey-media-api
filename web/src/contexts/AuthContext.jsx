@@ -31,6 +31,12 @@ export function AuthProvider({ children }) {
       if (userData && userData.valid) {
         setUser(userData.user);
         setRoles(userData.roles || []);
+        // Normalize URL if token already valid on /login
+        try {
+          if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+            window.history.replaceState({}, '', '/');
+          }
+        } catch {}
       }
     } catch (error) {
       console.error('Auth initialization failed:', error);
@@ -44,6 +50,12 @@ export function AuthProvider({ children }) {
       const result = await daileyAuth.login(email, password);
       setUser(result.user);
       setRoles(daileyAuth.roles);
+      // If currently on /login, clean up the URL without reloading
+      try {
+        if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+          window.history.replaceState({}, '', '/');
+        }
+      } catch {}
       return result;
     } catch (error) {
       console.error('Login failed:', error);

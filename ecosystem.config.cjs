@@ -35,7 +35,7 @@ module.exports = {
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 4000,
+        PORT: 4100, // CRITICAL: Must be 4100 to match Nginx upstream
         HOST: '0.0.0.0',
         instances: 'max',
         exec_mode: 'cluster'

@@ -51,7 +51,7 @@ export const authenticateToken = async (req, res, next) => {
         req.userRoles = local.roles || [];
         req.userTenants = local.tenants || [];
         req.userId = local.user?.id;
-        req.appId = 'dailey-media-api';
+        req.appId = local.appId || 'dailey-media-api';
         debugAuth('User authenticated via JWKS', { userId: req.userId });
         return next();
       }
@@ -119,7 +119,19 @@ export const authenticateToken = async (req, res, next) => {
     req.userRoles = userData.roles || [];
     req.userTenants = userData.tenants || [];
     req.userId = userData.user?.id;
-    req.appId = 'dailey-media-api'; // Default app ID for this service
+    // Derive appId from token claims if available (aud/app_id), fallback to default
+    try {
+      const decoded = jwt.decode(token) || {};
+      let appId = decoded.app_id || null;
+      const aud = decoded.aud;
+      if (!appId) {
+        if (Array.isArray(aud)) appId = aud[0];
+        else if (typeof aud === 'string') appId = aud;
+      }
+      req.appId = appId || 'dailey-media-api';
+    } catch (_) {
+      req.appId = 'dailey-media-api';
+    }
 
     debugAuth('User authenticated via CORE validate', {
       userId: userData.user?.id,
@@ -274,7 +286,14 @@ async function verifyLocallyWithJwks(token) {
   };
   const roles = Array.isArray(verified.roles) ? verified.roles : [];
   const tenants = Array.isArray(verified.tenants) ? verified.tenants : [];
-  return { valid: true, user, roles, tenants };
+  // appId from claims (aud/app_id)
+  let appId = verified.app_id || null;
+  const aud = verified.aud;
+  if (!appId) {
+    if (Array.isArray(aud)) appId = aud[0];
+    else if (typeof aud === 'string') appId = aud;
+  }
+  return { valid: true, user, roles, tenants, appId };
 }
 
 export const requireAnyRole = (roles) => {
@@ -337,7 +356,7 @@ export const optionalAuth = async (req, res, next) => {
           req.userRoles = local.roles || [];
           req.userTenants = local.tenants || [];
           req.userId = local.user?.id;
-          req.appId = 'dailey-media-api';
+          req.appId = local.appId || 'dailey-media-api';
         } else {
           // Fall back to CORE validate (best-effort)
           const authResponse = await fetch(`${DAILEY_CORE_URL}/auth/validate`, {
@@ -353,7 +372,18 @@ export const optionalAuth = async (req, res, next) => {
               req.userRoles = userData.roles || [];
               req.userTenants = userData.tenants || [];
               req.userId = userData.user?.id;
-              req.appId = 'dailey-media-api';
+              try {
+                const decoded = jwt.decode(token) || {};
+                let appId = decoded.app_id || null;
+                const aud = decoded.aud;
+                if (!appId) {
+                  if (Array.isArray(aud)) appId = aud[0];
+                  else if (typeof aud === 'string') appId = aud;
+                }
+                req.appId = appId || 'dailey-media-api';
+              } catch (_) {
+                req.appId = 'dailey-media-api';
+              }
             }
           }
         }

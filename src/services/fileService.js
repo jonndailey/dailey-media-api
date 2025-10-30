@@ -283,8 +283,9 @@ class FileService {
         }
       };
 
-      // If it's a processable image, extract metadata and create variants
-      if (fileInfo.processable && fileInfo.category === 'image') {
+      // If it's a processable image, extract metadata and optionally create variants
+      const skipVariants = Boolean(metadata?.skipVariants || metadata?.skipThumbnails || metadata?.noVariants);
+      if (!skipVariants && fileInfo.processable && fileInfo.category === 'image') {
         try {
           const imageMetadata = await this.extractImageMetadata(buffer);
           result.metadata = { ...result.metadata, ...imageMetadata };

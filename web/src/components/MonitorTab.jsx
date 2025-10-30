@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Activity, Server, Database, HardDrive, CheckCircle, XCircle, AlertTriangle, RefreshCw } from 'lucide-react'
 import { formatDate } from '../lib/utils'
+import { resolveApiUrl } from '../lib/auth'
 
 export default function MonitorTab({ apiHealth }) {
   const [detailedHealth, setDetailedHealth] = useState(null)
@@ -23,8 +24,8 @@ export default function MonitorTab({ apiHealth }) {
     setRefreshing(true)
     try {
       const [healthRes, detailedRes] = await Promise.all([
-        fetch('/api/health'),
-        fetch('/api/health/detailed').catch(() => null) // This endpoint doesn't exist yet
+        fetch(resolveApiUrl('/api/health')),
+        fetch(resolveApiUrl('/api/health/detailed')).catch(() => null) // This endpoint may not exist yet
       ])
       
       const healthData = await healthRes.json()
@@ -230,11 +231,11 @@ export default function MonitorTab({ apiHealth }) {
             </div>
             <div>
               <span className="text-sm font-medium">API Base URL:</span>
-              <div className="text-muted-foreground font-mono text-sm">http://100.105.97.19:4000</div>
+              <div className="text-muted-foreground font-mono text-sm">{import.meta.env.VITE_MEDIA_API_URL || `${window.location.protocol}//${window.location.hostname}:4100`}</div>
             </div>
             <div>
               <span className="text-sm font-medium">Frontend URL:</span>
-              <div className="text-muted-foreground font-mono text-sm">http://100.105.97.19:5174</div>
+              <div className="text-muted-foreground font-mono text-sm">{window.location.origin}</div>
             </div>
           </div>
           <div className="space-y-3">

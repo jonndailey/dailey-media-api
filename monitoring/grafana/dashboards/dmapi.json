@@ -1,0 +1,105 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests per second (by route)",
+      "targets": [
+        {
+          "expr": "sum by (route) (rate(dmapi_http_request_duration_seconds_count[5m]))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p95 (by route)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(dmapi_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Uploads per minute",
+      "targets": [
+        {"expr": "rate(dmapi_uploads_total[1m])", "legendFormat": "uploads/min"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "Upload errors per minute",
+      "targets": [
+        {"expr": "rate(dmapi_upload_errors_total[1m])", "legendFormat": "errors/min"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    },
+    {
+      "type": "stat",
+      "title": "Current error rate (5m)",
+      "targets": [
+        {"expr": "sum(rate(dmapi_upload_errors_total[5m])) / sum(rate(dmapi_http_request_duration_seconds_count[5m]))", "legendFormat": "error rate"}
+      ],
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 16}
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP status codes",
+      "targets": [
+        {"expr": "sum by (status_code) (rate(dmapi_http_request_duration_seconds_count[5m]))", "legendFormat": "{{status_code}}"}
+      ],
+      "gridPos": {"h": 6, "w": 18, "x": 6, "y": 16}
+    },
+    {
+      "type": "timeseries",
+      "title": "Upload bandwidth (B/s by bucket)",
+      "targets": [
+        {"expr": "sum by (bucket_id) (rate(dmapi_upload_bytes_total[5m]))", "legendFormat": "{{bucket_id}}"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22}
+    },
+    {
+      "type": "timeseries",
+      "title": "Egress bandwidth (B/s by route)",
+      "targets": [
+        {"expr": "sum by (route) (rate(dmapi_http_response_bytes_total[5m]))", "legendFormat": "{{route}}"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22}
+    },
+    {
+      "type": "timeseries",
+      "title": "Storage bytes by bucket",
+      "targets": [
+        {"expr": "dmapi_storage_bytes", "legendFormat": "{{bucket_id}} ({{access}})"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30}
+    },
+    {
+      "type": "timeseries",
+      "title": "Stored objects by bucket",
+      "targets": [
+        {"expr": "dmapi_storage_objects", "legendFormat": "{{bucket_id}} ({{access}})"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["dmapi", "prometheus"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "DMAPI Overview",
+  "uid": "dmapi-overview",
+  "version": 1
+}

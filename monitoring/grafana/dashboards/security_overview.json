@@ -1,0 +1,46 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {"type": "stat", "title": "Fail2ban bans (5m)",
+     "targets": [{"expr": "sum by (host) (count_over_time({job=\"fail2ban\"} |= \"Ban\" [5m]))", "refId": "A"}],
+     "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}},
+    {"type": "timeseries", "title": "Fail2ban bans per minute",
+     "targets": [{"expr": "sum by (host) (rate(count_over_time({job=\"fail2ban\"} |= \"Ban\" [1m])[5m]))", "refId": "A"}],
+     "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0}},
+    {"type": "stat", "title": "SSH failed logins (5m)",
+     "targets": [{"expr": "sum by (host) (count_over_time({job=\"auth\"} |= \"Failed password\" [5m]))", "refId": "A"}],
+     "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0}},
+
+    {"type": "timeseries", "title": "UFW blocks per minute",
+     "targets": [{"expr": "sum by (host) (rate(count_over_time({job=\"ufw\"} |= \"UFW BLOCK\" [1m])[5m]))", "refId": "A"}],
+     "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}},
+    {"type": "timeseries", "title": "Nginx 4xx/5xx per minute",
+     "targets": [
+       {"expr": "sum by (host) (rate(count_over_time({job=\"nginx\"} |~ \" 4[0-9][0-9] \" [1m])[5m]))", "legendFormat": "4xx", "refId": "A"},
+       {"expr": "sum by (host) (rate(count_over_time({job=\"nginx\"} |~ \" 5[0-9][0-9] \" [1m])[5m]))", "legendFormat": "5xx", "refId": "B"}
+     ],
+     "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4}},
+
+    {"type": "table", "title": "Top blocked IPs (UFW, 24h)",
+     "targets": [{"expr": "topk(10, sum by (host, addr) (count_over_time(({job=\"ufw\"} |= \"UFW BLOCK\" | regexp \"addr=(?P<addr>[0-9.]+)\")[24h])))", "refId": "A"}],
+     "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12}},
+    {"type": "table", "title": "Top SSH sources (failed, 24h)",
+     "targets": [{"expr": "topk(10, sum by (host, ip) (count_over_time(({job=\"auth\"} | regexp \"from (?P<ip>[0-9.]+) port\" |= \"Failed password\")[24h])))", "refId": "A"}],
+     "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12}}
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["security", "loki"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timezone": "browser",
+  "title": "Security Overview",
+  "uid": "security-overview",
+  "version": 1
+}
+

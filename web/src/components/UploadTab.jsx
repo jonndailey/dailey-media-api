@@ -2,9 +2,10 @@ import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Upload, X, CheckCircle, AlertCircle, FileImage, Loader2, ChevronDown, Lock, Globe, Search, Folder } from 'lucide-react'
 import { formatBytes } from '../lib/utils'
+import { resolveApiUrl } from '../lib/auth'
 import { useAuth } from '../contexts/AuthContext'
 
-export default function UploadTab() {
+export default function UploadTab({ selectedAppId = 'dailey-media-api' }) {
   const [uploadedFiles, setUploadedFiles] = useState([])
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -18,21 +19,27 @@ export default function UploadTab() {
   
   const { makeAuthenticatedRequest } = useAuth()
 
-  // Load supported formats and buckets on component mount
+  // Load supported formats once
   useEffect(() => {
-    // Load supported formats
-    fetch('/api/upload/formats')
+    fetch(resolveApiUrl('/api/upload/formats'))
       .then(res => res.json())
       .then(data => setSupportedFormats(data.formats))
       .catch(console.error)
-    
-    // Load buckets
-    fetchBuckets()
   }, [])
+
+  // Refresh buckets when the selected app changes
+  useEffect(() => {
+    fetchBuckets()
+  }, [selectedAppId])
   
   const fetchBuckets = async () => {
     try {
-      const response = await makeAuthenticatedRequest('/api/buckets')
+      const params = new URLSearchParams()
+      if (selectedAppId) {
+        params.set('app_id', selectedAppId)
+      }
+      const query = params.toString()
+      const response = await makeAuthenticatedRequest(`/api/buckets${query ? `?${query}` : ''}`)
       const data = await response.json()
       const bucketList = data.buckets || []
       setBuckets(bucketList)
@@ -97,6 +104,9 @@ export default function UploadTab() {
         formData.append('bucket_id', bucketId)
         if (folderPath.trim()) {
           formData.append('folder_path', folderPath.trim())
+        }
+        if (selectedAppId) {
+          formData.append('app_id', selectedAppId)
         }
 
         const response = await makeAuthenticatedRequest('/api/upload', {

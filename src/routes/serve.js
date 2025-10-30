@@ -100,7 +100,7 @@ router.get('/files/:userId/:bucketId/*', async (req, res) => {
               }
               
               const userContext = {
-                userId: req.userId || 'anonymous',
+                userId: req.userId || null,  // Use null instead of 'anonymous' for foreign key constraint
                 user: req.user,
                 email: req.user?.email,
                 roles: req.userRoles || [],
@@ -175,7 +175,7 @@ router.get('/files/:userId/:bucketId/*', async (req, res) => {
           }
           
           const userContext = {
-            userId: req.userId || 'anonymous',
+            userId: req.userId || null,  // Use null for anonymous users
             user: req.user,
             email: req.user?.email,
             roles: req.userRoles || [],
@@ -211,7 +211,7 @@ router.get('/files/:userId/:bucketId/*', async (req, res) => {
           }
           
           const userContext = {
-            userId: req.userId || 'anonymous',
+            userId: req.userId || null,  // Use null for anonymous users
             user: req.user,
             email: req.user?.email,
             roles: req.userRoles || [],

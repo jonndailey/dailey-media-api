@@ -1,0 +1,23 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    isDefault: true
+    editable: true
+    url: http://prometheus:9090
+    jsonData:
+      httpMethod: GET
+      timeInterval: 15s
+    version: 1
+
+###############################################
+# Notes
+# - This file is used by docker-compose (Grafana service) via:
+#     ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+# - In the compose network, the Prometheus service DNS name is `prometheus`.
+# - On the production server (dmapiapp01) we point Grafana to http://localhost:9090
+#   via /etc/grafana/provisioning/datasources/*.yml (managed on-host).
+###############################################
+

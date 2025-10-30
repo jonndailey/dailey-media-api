@@ -9,6 +9,7 @@ import { logInfo, logError } from '../middleware/logger.js';
 import { authenticateToken, requireScope } from '../middleware/dailey-auth.js';
 import { normalizeRelativePath } from '../utils/pathUtils.js';
 import bucketService from '../services/bucketService.js';
+import { uploadsTotal, uploadErrorsTotal, uploadBytesTotal } from '../middleware/metrics.js';
 
 const router = express.Router();
 
@@ -29,7 +30,10 @@ const upload = multer({
 router.post('/', authenticateToken, requireScope('upload'), upload.single('file'), async (req, res) => {
   try {
     // Use authenticated user's info if not provided in body
-    const user_id = req.body.user_id || req.userId;
+    // Allow service/admin tokens to upload on behalf of a user
+    const canImpersonate = Array.isArray(req.userRoles) && (req.userRoles.includes('service') || req.userRoles.includes('admin') || req.userRoles.includes('core.admin') || req.userRoles.includes('tenant.admin'));
+    const overrideUserId = req.body.as_user_id || req.body.owner_id || req.body.user_id;
+    const user_id = (canImpersonate && overrideUserId) ? String(overrideUserId).trim() : (req.body.user_id || req.userId);
     const app_id = req.body.app_id || req.appId;
     const bucket_id = req.body.bucket_id || 'default';
     const folder_path = normalizeRelativePath(req.body.folder_path || '');
@@ -88,6 +92,8 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
           storage_key: result.original.key,
           original_filename: req.file.originalname,
           user_id,
+          user_email: req.user?.email || null,
+          user_name: req.user?.name || null,
           application_id: app_id,
           bucket_id,
           file_size: req.file.size,
@@ -110,8 +116,9 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
           exif_data: result.metadata?.exif || {}
         });
 
-        // Generate thumbnails in the background
-        if (mediaId && result.metadata?.width && result.metadata?.height) {
+        // Generate thumbnails in the background (unless explicitly disabled)
+        const skipVariants = Boolean(result.metadata?.skipVariants || result.metadata?.skipThumbnails || req.body?.skip_variants === 'true');
+        if (!skipVariants && mediaId && result.metadata?.width && result.metadata?.height) {
           thumbnailService.generateThumbnails(mediaId, req.file.buffer, {
             sizes: ['thumbnail', 'small', 'medium'],
             formats: ['webp', 'jpeg']
@@ -121,8 +128,38 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
         }
       } catch (dbError) {
         logError(dbError, { context: 'upload.database', uploadId });
+
+        // Handle duplicate content hash by reusing existing media record
+        const isDuplicateHash = dbError?.code === 'ER_DUP_ENTRY'
+          || (typeof dbError?.message === 'string' && dbError.message.includes('Duplicate entry') && dbError.message.includes('content_hash'));
+
+        if (isDuplicateHash && result.original?.hash) {
+          try {
+            const existingRecord = await databaseService.getMediaFileByContentHash(result.original.hash);
+            if (existingRecord) {
+              mediaId = existingRecord.id;
+              logInfo('Reused existing media file for duplicate content hash', {
+                uploadId,
+                mediaId,
+                userId: existingRecord.user_id,
+                applicationId: existingRecord.application_id
+              });
+            }
+          } catch (lookupError) {
+            logError(lookupError, {
+              context: 'upload.database.duplicateLookup',
+              uploadId,
+              hash: result.original.hash
+            });
+          }
+        }
         // Continue without database - don't fail the upload
       }
+    }
+
+    // Include a stable id in response when available
+    if (mediaId) {
+      result.id = mediaId;
     }
 
     // Track analytics
@@ -133,7 +170,10 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
         email: req.user?.email,
         roles: req.userRoles,
         userAgent: req.get('User-Agent'),
-        ip: req.ip
+        ip: req.ip,
+        appId: req.appId,
+        referer: req.get('Referer'),
+        tenantId: Array.isArray(req.userTenants) && req.userTenants.length === 1 ? req.userTenants[0].id : null
       };
 
       await analyticsService.trackFileUpload({
@@ -148,11 +188,20 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
       // Don't fail the upload if analytics fails
     }
     
+    // Metrics: mark successful upload and bytes
+    try {
+      uploadsTotal.inc();
+      uploadBytesTotal.labels(bucket_id, app_id || 'dailey-media-api', bucketAccess).inc(req.file.size || 0);
+    } catch (_) { /* ignore */ }
+    // Log final outcome for quick verification
+    logInfo('Upload completed', { uploadId, mediaId, key: result.original?.key, userId: user_id, appId: app_id, bucketId: bucket_id });
+
     res.json({
       success: true,
       uploadId,
       mediaId,
       file: {
+        id: mediaId || null,
         original: result.original,
         variants: result.variants,
         metadata: {
@@ -169,6 +218,7 @@ router.post('/', authenticateToken, requireScope('upload'), upload.single('file'
       filename: req.file?.originalname,
       size: req.file?.size
     });
+    try { uploadErrorsTotal.inc(); } catch (_) { /* ignore */ }
     
     res.status(500).json({
       success: false,
@@ -245,6 +295,18 @@ router.post('/batch', authenticateToken, requireScope('upload'), upload.array('f
     const results = await Promise.all(uploadPromises);
     const successful = results.filter(r => r.success);
     const failed = results.filter(r => !r.success);
+
+    // Metrics for batch
+    try {
+      for (const r of successful) {
+        uploadsTotal.inc();
+        const size = typeof r.size === 'number' ? r.size : 0;
+        uploadBytesTotal.labels('default', app_id || 'dailey-media-api', 'private').inc(size);
+      }
+      if (failed.length > 0) {
+        uploadErrorsTotal.inc(failed.length);
+      }
+    } catch (_) { /* ignore */ }
     
     res.json({
       success: failed.length === 0,

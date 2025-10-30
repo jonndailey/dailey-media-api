@@ -1,0 +1,81 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Core app target up",
+      "targets": [
+        { "expr": "sum(up{job=\"core_app\"})", "legendFormat": "core_app up" }
+      ],
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Uptime (seconds)",
+      "targets": [
+        {
+          "expr": "dailey_core_uptime_seconds{job=\"core_app\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 9, "x": 6, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory usage (heap)",
+      "targets": [
+        {
+          "expr": "dailey_core_memory_usage_bytes{job=\"core_app\",type=\"heap_used\"}",
+          "legendFormat": "heap_used {{instance}}"
+        },
+        {
+          "expr": "dailey_core_memory_usage_bytes{job=\"core_app\",type=\"heap_total\"}",
+          "legendFormat": "heap_total {{instance}}"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 9, "x": 15, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Users / Apps / Enrollments",
+      "targets": [
+        { "expr": "dailey_core_users_total{job=\"core_app\"}", "legendFormat": "users" },
+        { "expr": "dailey_core_apps_total{job=\"core_app\"}", "legendFormat": "apps" },
+        { "expr": "dailey_core_active_enrollments_total{job=\"core_app\"}", "legendFormat": "active_enrollments" }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+    },
+    {
+      "type": "stat",
+      "title": "Recent audits (last hour)",
+      "targets": [
+        { "expr": "dailey_core_recent_audits_total{job=\"core_app\"}", "legendFormat": "audits/hr" }
+      ],
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 6}
+    },
+    {
+      "type": "timeseries",
+      "title": "Scrape success / sample rate",
+      "targets": [
+        { "expr": "sum by (instance) (rate(scrape_samples_post_metric_relabeling{job=\"core_app\"}[5m]))", "legendFormat": "samples {{instance}}" },
+        { "expr": "sum by (instance) (up{job=\"core_app\"})", "legendFormat": "up {{instance}}" }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["core", "prometheus", "app"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Core App Overview",
+  "uid": "core-app-overview",
+  "version": 1
+}
+

@@ -41,6 +41,9 @@ export const createRateLimit = (windowMs = 15 * 60 * 1000, max = 100, message = 
     },
     standardHeaders: true,
     legacyHeaders: false,
+    // In some proxy topologies, X-Forwarded-For may be set even if trust proxy
+    // resolution is handled elsewhere. Disable strict validation to avoid hard errors.
+    validate: { xForwardedForHeader: false },
     handler: (req, res) => {
       res.status(429).json({
         error: 'Rate limit exceeded',
@@ -52,10 +55,19 @@ export const createRateLimit = (windowMs = 15 * 60 * 1000, max = 100, message = 
 };
 
 // Different rate limits for different endpoints
-export const generalRateLimit = createRateLimit(15 * 60 * 1000, 100, 'Too many requests from this IP');
-export const authRateLimit = createRateLimit(15 * 60 * 1000, 5, 'Too many authentication attempts');
-export const uploadRateLimit = createRateLimit(60 * 1000, 10, 'Too many upload attempts');
-export const apiRateLimit = createRateLimit(60 * 1000, 1000, 'API rate limit exceeded');
+const GENERAL_RATE_LIMIT_WINDOW_MS = parseInt(process.env.GENERAL_RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000), 10);
+const GENERAL_RATE_LIMIT_MAX = parseInt(process.env.GENERAL_RATE_LIMIT_MAX || '100', 10);
+const AUTH_RATE_LIMIT_WINDOW_MS = parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000), 10);
+const AUTH_RATE_LIMIT_MAX = parseInt(process.env.AUTH_RATE_LIMIT_MAX || '5', 10);
+const UPLOAD_RATE_LIMIT_WINDOW_MS = parseInt(process.env.UPLOAD_RATE_LIMIT_WINDOW_MS || String(60 * 1000), 10);
+const UPLOAD_RATE_LIMIT_MAX = parseInt(process.env.UPLOAD_RATE_LIMIT_MAX || '10', 10);
+const API_RATE_LIMIT_WINDOW_MS = parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || String(60 * 1000), 10);
+const API_RATE_LIMIT_MAX = parseInt(process.env.API_RATE_LIMIT_MAX || '1000', 10);
+
+export const generalRateLimit = createRateLimit(GENERAL_RATE_LIMIT_WINDOW_MS, GENERAL_RATE_LIMIT_MAX, 'Too many requests from this IP');
+export const authRateLimit = createRateLimit(AUTH_RATE_LIMIT_WINDOW_MS, AUTH_RATE_LIMIT_MAX, 'Too many authentication attempts');
+export const uploadRateLimit = createRateLimit(UPLOAD_RATE_LIMIT_WINDOW_MS, UPLOAD_RATE_LIMIT_MAX, 'Too many upload attempts');
+export const apiRateLimit = createRateLimit(API_RATE_LIMIT_WINDOW_MS, API_RATE_LIMIT_MAX, 'API rate limit exceeded');
 
 // Speed limiting for heavy operations
 export const uploadSpeedLimit = slowDown({
@@ -233,7 +245,9 @@ export const securityLogger = (req, res, next) => {
 
 // Force HTTPS in production
 export const forceHTTPS = (req, res, next) => {
-  if (process.env.NODE_ENV === 'production' && !req.secure && req.get('x-forwarded-proto') !== 'https') {
+  const exemptPaths = ['/health', '/metrics', '/api/core/health'];
+  const isExempt = exemptPaths.some(p => req.originalUrl?.startsWith(p));
+  if (process.env.NODE_ENV === 'production' && !isExempt && !req.secure && req.get('x-forwarded-proto') !== 'https') {
     return res.redirect(301, `https://${req.get('host')}${req.url}`);
   }
   next();

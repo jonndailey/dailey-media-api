@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs'
 import path from 'path'
+import databaseService from './databaseService.js'
 
 class AnalyticsService {
   constructor() {
@@ -119,6 +120,10 @@ class AnalyticsService {
 
   async getStats() {
     try {
+      // Prefer database-backed stats when available
+      if (databaseService.isAvailable()) {
+        return await this.getDbBackedStats()
+      }
       const data = await fs.readFile(this.statsFile, 'utf8')
       return this.normalizeStatsStructure(JSON.parse(data))
     } catch (error) {
@@ -170,6 +175,10 @@ class AnalyticsService {
 
   async trackFileUpload(fileData, userContext = {}) {
     try {
+      // When DB is available we derive upload metrics from media_files; no direct event needed
+      if (databaseService.isAvailable()) {
+        return await this.getDbBackedStats()
+      }
       const stats = await this.getStats()
       const today = new Date().toISOString().split('T')[0]
       
@@ -218,6 +227,26 @@ class AnalyticsService {
 
   async trackFileAccess(fileId, userContext = {}) {
     try {
+      if (databaseService.isAvailable()) {
+        // Store as a view event in DB
+        const metadata = {
+          tenant_id: userContext.tenantId || null,
+          email: userContext.email || null,
+          roles: userContext.roles || []
+        }
+        await databaseService.recordAnalyticsEvent({
+          mediaFileId: fileId,
+          eventType: 'view',
+          userId: userContext.userId || userContext.user?.id || null,
+          applicationId: userContext.appId || null,
+          ip: userContext.ip || null,
+          userAgent: userContext.userAgent || null,
+          referer: userContext.referer || null,
+          variantType: userContext.variantType || null,
+          metadata
+        })
+        return true
+      }
       const stats = await this.getStats()
       const today = new Date().toISOString().split('T')[0]
       const hour = new Date().getHours()
@@ -312,6 +341,24 @@ class AnalyticsService {
 
   async trackBandwidth(fileId, bytes, userContext = {}) {
     try {
+      if (databaseService.isAvailable()) {
+        const metadata = {
+          bytes: Number(bytes || 0),
+          tenant_id: userContext.tenantId || null
+        }
+        await databaseService.recordAnalyticsEvent({
+          mediaFileId: fileId,
+          eventType: userContext.eventType || 'view',
+          userId: userContext.userId || userContext.user?.id || null,
+          applicationId: userContext.appId || null,
+          ip: userContext.ip || null,
+          userAgent: userContext.userAgent || null,
+          referer: userContext.referer || null,
+          variantType: userContext.variantType || null,
+          metadata
+        })
+        return true
+      }
       const stats = await this.getStats()
       const today = new Date().toISOString().split('T')[0]
 
@@ -364,6 +411,9 @@ class AnalyticsService {
 
   async getAnalytics(timeRange = '7d') {
     try {
+      if (databaseService.isAvailable()) {
+        return await this.getDbBackedAnalytics(timeRange)
+      }
       const stats = await this.getStats()
       const now = new Date()
       let startDate
@@ -567,6 +617,145 @@ class AnalyticsService {
       avgTime: Math.round(data.total / data.count),
       p95Time: Math.round((data.total / data.count) * 1.5) // Mock P95
     }))
+  }
+}
+
+// Helpers for DB-backed analytics
+function toMysqlDateTime(date) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+function startDateForRange(range) {
+  const now = new Date()
+  const map = {
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000,
+    '90d': 90 * 24 * 60 * 60 * 1000,
+    '1y': 365 * 24 * 60 * 60 * 1000
+  }
+  const ms = map[range] || map['7d']
+  return new Date(now.getTime() - ms)
+}
+
+function categorizeMime(mime) {
+  const m = (mime || '').toLowerCase()
+  if (m.startsWith('image/')) return 'images'
+  if (m.startsWith('video/')) return 'videos'
+  if (m.startsWith('audio/')) return 'audio'
+  if (m.startsWith('text/')) return 'documents'
+  if (m.includes('pdf') || m.includes('msword') || m.includes('officedocument')) return 'documents'
+  if (m.includes('zip') || m.includes('tar') || m.includes('rar') || m.includes('7z')) return 'archives'
+  if (m.includes('json') || m.includes('csv') || m.includes('xml')) return 'data'
+  if (m.includes('javascript') || m.includes('typescript')) return 'code'
+  return 'other'
+}
+
+AnalyticsService.prototype.getDbBackedStats = async function () {
+  const overview = await databaseService.getOverviewStats()
+  const fileTypeRows = await databaseService.getFileTypesBreakdown()
+  const fileTypes = this.getDefaultStats().fileTypes
+
+  for (const row of fileTypeRows) {
+    const cat = categorizeMime(row.mimeType)
+    if (!fileTypes[cat]) fileTypes[cat] = { count: 0, size: 0 }
+    fileTypes[cat].count += row.count
+    fileTypes[cat].size += row.size
+  }
+
+  return {
+    overview: {
+      totalFiles: overview.totalFiles,
+      totalSize: overview.totalSize,
+      totalAccesses: overview.totalAccesses,
+      uniqueUsers: overview.uniqueUsers,
+      lastUpdated: new Date().toISOString()
+    },
+    fileAccesses: {},
+    userAccesses: {},
+    dailyStats: {},
+    fileTypes,
+    performance: { responseTimes: [], errorCount: 0, requestCount: 0 }
+  }
+}
+
+AnalyticsService.prototype.getDbBackedAnalytics = async function (timeRange) {
+  const start = startDateForRange(timeRange)
+  const startStr = toMysqlDateTime(start)
+  const overview = await databaseService.getOverviewStats()
+  const fileTypeRows = await databaseService.getFileTypesBreakdown()
+  const topRows = await databaseService.getTopFilesSince(startStr, 5)
+  const hourly = await databaseService.getHourlyAccessesSince(startStr)
+  const dailyUploads = await databaseService.getDailyUploadsSince(startStr)
+  const dailyAccesses = await databaseService.getDailyAccessesSince(startStr)
+
+  const fileTypesAgg = {}
+  for (const row of fileTypeRows) {
+    const cat = categorizeMime(row.mimeType)
+    if (!fileTypesAgg[cat]) fileTypesAgg[cat] = { count: 0, size: 0 }
+    fileTypesAgg[cat].count += row.count
+    fileTypesAgg[cat].size += row.size
+  }
+
+  const fileTypes = Object.entries(fileTypesAgg).map(([category, data]) => ({
+    category: category.charAt(0).toUpperCase() + category.slice(1),
+    count: data.count,
+    size: this.formatBytes(data.size),
+    percentage: overview.totalFiles > 0 ? ((data.count / overview.totalFiles) * 100).toFixed(1) : 0
+  })).filter(t => t.count > 0)
+
+  const topFiles = topRows.map(r => ({
+    fileId: r.media_file_id,
+    accesses: Number(r.accesses || 0),
+    lastAccessed: r.lastAccessed,
+    uniqueUsers: Number(r.uniqueUsers || 0),
+    uniqueEmails: 0
+  }))
+
+  // Calculate trends by splitting the time window into two halves
+  const sum = (arr) => arr.reduce((a, b) => a + b, 0)
+  const splitInHalf = (arr) => {
+    const mid = Math.floor(arr.length / 2)
+    return [sum(arr.slice(0, mid)), sum(arr.slice(mid))]
+  }
+  const [uploadsPrev, uploadsCurr] = splitInHalf(dailyUploads.map(d => d.uploads))
+  const [accessPrev, accessCurr] = splitInHalf(dailyAccesses.map(d => d.accesses))
+  const [bandPrev, bandCurr] = splitInHalf(dailyAccesses.map(d => d.bandwidth))
+
+  const pctChange = (curr, prev) => {
+    if (!prev) return 0
+    return Math.round(((curr - prev) / prev) * 1000) / 10
+  }
+
+  return {
+    overview: {
+      totalFiles: overview.totalFiles,
+      totalSize: this.formatBytes(overview.totalSize),
+      totalAccesses: overview.totalAccesses,
+      uniqueUsers: overview.uniqueUsers,
+      lastUpdated: new Date().toISOString(),
+      avgResponseTime: '0ms',
+      uptime: '99.9%'
+    },
+    trends: {
+      filesUploaded: { current: uploadsCurr, previous: uploadsPrev, change: pctChange(uploadsCurr, uploadsPrev) },
+      fileAccesses: { current: accessCurr, previous: accessPrev, change: pctChange(accessCurr, accessPrev) },
+      bandwidth: { current: this.formatBytes(bandCurr), previous: this.formatBytes(bandPrev), change: pctChange(bandCurr, bandPrev) },
+      apiCalls: { current: uploadsCurr + accessCurr, previous: uploadsPrev + accessPrev, change: pctChange(uploadsCurr + accessCurr, uploadsPrev + accessPrev) }
+    },
+    fileTypes,
+    topFiles,
+    accessPatterns: {
+      hourly: hourly.map((accesses, hour) => ({ hour, accesses })),
+      devices: [],
+      regions: []
+    },
+    performance: {
+      responseTime: [],
+      errorRate: 0,
+      cacheHitRate: 0
+    }
   }
 }
 

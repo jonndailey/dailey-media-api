@@ -28,8 +28,9 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { cn } from '../lib/utils'
 
 const API_KEY = 'dmapi_dev_zR0XufVsrw2EIawIwnTV9HravIRQcKtI'; // Default API key
+const DEFAULT_APP_ID = 'castingly'; // Target application scope for Castingly assets
 
-export default function MediaTab() {
+export default function MediaTab({ appId = DEFAULT_APP_ID }) {
   const [mediaFiles, setMediaFiles] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -54,7 +55,7 @@ export default function MediaTab() {
 
   useEffect(() => {
     fetchMediaFiles()
-  }, [pagination.offset, searchQuery, filters])
+  }, [pagination.offset, searchQuery, filters, appId])
 
   const fetchMediaFiles = async () => {
     try {
@@ -68,11 +69,15 @@ export default function MediaTab() {
         order_direction: filters.order_direction
       })
 
+      if (appId) {
+        queryParams.append('app_id', appId)
+      }
+
       if (searchQuery) queryParams.append('search', searchQuery)
       if (filters.mime_type) queryParams.append('mime_type', filters.mime_type)
       if (filters.processing_status) queryParams.append('processing_status', filters.processing_status)
 
-      const response = await fetch(`/api/media?${queryParams}`, {
+      const response = await fetch(`/api/files?${queryParams}`, {
         headers: {
           'X-API-Key': API_KEY
         }
@@ -87,11 +92,11 @@ export default function MediaTab() {
           has_more: data.pagination.has_more
         }))
       } else {
-        const errorData = await response.json()
-        setError(errorData.error || 'Failed to fetch media files')
+        const errorData = await response.json().catch(() => ({}))
+        setError(errorData.error || 'Failed to fetch files')
       }
     } catch (error) {
-      setError('Error fetching media files: ' + error.message)
+      setError('Error fetching files: ' + error.message)
     } finally {
       setLoading(false)
     }

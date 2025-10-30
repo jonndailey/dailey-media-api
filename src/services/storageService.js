@@ -15,6 +15,14 @@ import os from 'os';
 import { nanoid } from 'nanoid';
 import config from '../config/index.js';
 import { logInfo, logError } from '../middleware/logger.js';
+import {
+  storageWriteBytesTotal,
+  storageWriteObjectsTotal,
+  storageDeleteBytesTotal,
+  storageDeleteObjectsTotal,
+  storageCurrentBytes,
+  storageCurrentObjects
+} from '../middleware/metrics.js';
 
 class StorageService {
   constructor() {
@@ -91,11 +99,10 @@ class StorageService {
       }
 
       if (isForbidden) {
-        logError(error, {
-          context: 'StorageService.ensureBucketExists.forbidden',
-          bucket: this.bucketName
-        });
-        throw error;
+        // OVH and some S3-compatible providers may forbid HeadBucket while allowing List/Get.
+        // Treat this as an acceptable state and proceed without attempting creation.
+        logInfo('S3 HeadBucket forbidden; proceeding without create', { bucket: this.bucketName });
+        return true;
       }
 
       const createParams = { Bucket: this.bucketName };
@@ -169,6 +176,17 @@ class StorageService {
 
       logInfo('File uploaded to S3', { key, contentType, size: buffer.length });
 
+      // Metrics: record storage writes
+      try {
+        const labels = this.extractMetricLabelsFromMetadata(key, metadataPayload);
+        storageWriteBytesTotal.labels(labels.bucket_id, labels.app_id, labels.access, labels.kind).inc(buffer.length);
+        storageWriteObjectsTotal.labels(labels.bucket_id, labels.app_id, labels.access, labels.kind).inc(1);
+        storageCurrentBytes.labels(labels.bucket_id, labels.app_id, labels.access).inc(buffer.length);
+        storageCurrentObjects.labels(labels.bucket_id, labels.app_id, labels.access).inc(1);
+      } catch (e) {
+        // do not block on metrics
+      }
+
       const accessDetails = await this.getAccessDetails(key, { access });
 
       return {
@@ -211,6 +229,18 @@ class StorageService {
       fs.writeFileSync(metadataPath, JSON.stringify(metadataPayload, null, 2));
 
       logInfo('File uploaded to local storage', { key, contentType, size: buffer.length });
+
+      // Metrics: record storage writes
+      try {
+        const metadataPayload = this.buildMetadataPayload(contentType, buffer.length, metadata);
+        const labels = this.extractMetricLabelsFromMetadata(key, metadataPayload);
+        storageWriteBytesTotal.labels(labels.bucket_id, labels.app_id, labels.access, labels.kind).inc(buffer.length);
+        storageWriteObjectsTotal.labels(labels.bucket_id, labels.app_id, labels.access, labels.kind).inc(1);
+        storageCurrentBytes.labels(labels.bucket_id, labels.app_id, labels.access).inc(buffer.length);
+        storageCurrentObjects.labels(labels.bucket_id, labels.app_id, labels.access).inc(1);
+      } catch (e) {
+        // ignore metrics errors
+      }
 
       const accessDetails = await this.getAccessDetails(key, { access });
 
@@ -297,6 +327,24 @@ class StorageService {
     try {
       await this.ensureReady();
 
+      // Fetch size and metadata before delete for metrics
+      let size = 0;
+      let labels = null;
+      try {
+        const head = new HeadObjectCommand({ Bucket: this.bucketName, Key: key });
+        const headRes = await this.s3Client.send(head);
+        size = Number(headRes.ContentLength || 0);
+        const meta = headRes.Metadata || {};
+        labels = this.extractMetricLabelsFromMetadata(key, meta);
+      } catch (e) {
+        try {
+          // Fallback to sidecar metadata
+          const meta = await this.getFileMetadata(key);
+          size = Number(meta?.size || 0);
+          labels = this.extractMetricLabelsFromMetadata(key, meta || {});
+        } catch (_) { /* ignore */ }
+      }
+
       const command = new DeleteObjectCommand({
         Bucket: this.bucketName,
         Key: key,
@@ -305,6 +353,20 @@ class StorageService {
       await this.s3Client.send(command);
 
       logInfo('File deleted from S3', { key });
+
+      // Metrics: record deletes (best-effort)
+      try {
+        if (labels) {
+          storageDeleteObjectsTotal.labels(labels.bucket_id, labels.app_id, labels.access, labels.kind).inc(1);
+          if (size > 0) {
+            storageDeleteBytesTotal.labels(labels.bucket_id, labels.app_id, labels.access, labels.kind).inc(size);
+            storageCurrentBytes.labels(labels.bucket_id, labels.app_id, labels.access).dec(size);
+          }
+          storageCurrentObjects.labels(labels.bucket_id, labels.app_id, labels.access).dec(1);
+        }
+      } catch (e) {
+        // ignore metrics errors
+      }
 
       return { success: true, key };
     } catch (error) {
@@ -320,6 +382,14 @@ class StorageService {
     try {
       const filePath = path.join(process.cwd(), 'storage', key);
       const metadataPath = filePath + '.meta.json';
+      let size = 0;
+      let labels = null;
+      try {
+        const stats = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
+        size = stats?.size || 0;
+        const meta = fs.existsSync(metadataPath) ? JSON.parse(fs.readFileSync(metadataPath, 'utf8')) : {};
+        labels = this.extractMetricLabelsFromMetadata(key, meta || {});
+      } catch (_) { /* ignore */ }
 
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
@@ -329,6 +399,18 @@ class StorageService {
       }
 
       logInfo('File deleted from local storage', { key });
+
+      // Metrics: record deletes
+      try {
+        if (labels) {
+          storageDeleteObjectsTotal.labels(labels.bucket_id, labels.app_id, labels.access, labels.kind).inc(1);
+          if (size > 0) {
+            storageDeleteBytesTotal.labels(labels.bucket_id, labels.app_id, labels.access, labels.kind).inc(size);
+            storageCurrentBytes.labels(labels.bucket_id, labels.app_id, labels.access).dec(size);
+          }
+          storageCurrentObjects.labels(labels.bucket_id, labels.app_id, labels.access).dec(1);
+        }
+      } catch (e) { /* ignore */ }
 
       return { success: true, key };
     } catch (error) {
@@ -680,6 +762,212 @@ class StorageService {
     return this.listBucketFolderLocal(userId, bucketId, folderPath);
   }
 
+  async listUserBuckets(userId) {
+    if (!userId) {
+      return [];
+    }
+
+    if (this.storageType === 's3') {
+      return this.listUserBucketsS3(userId);
+    }
+
+    return this.listUserBucketsLocal(userId);
+  }
+
+  async listUserBucketsLocal(userId) {
+    const userStoragePath = path.join(process.cwd(), 'storage', 'files', userId);
+
+    try {
+      const entries = await fs.promises.readdir(userStoragePath, { withFileTypes: true });
+
+      const buckets = await Promise.all(entries
+        .filter(entry => entry.isDirectory())
+        .map(async entry => {
+          const bucketPath = path.join(userStoragePath, entry.name);
+          const stats = await fs.promises.stat(bucketPath);
+          const metadata = await this.readBucketMetadataLocal(bucketPath, entry.name, userId);
+
+          const files = await fs.promises.readdir(bucketPath);
+          const fileCount = files.filter(f => !f.endsWith('.meta.json') && !f.startsWith('.')).length;
+
+          return {
+            id: metadata.id || entry.name,
+            name: metadata.name || entry.name,
+            description: metadata.description || `Bucket: ${entry.name}`,
+            is_public: Boolean(metadata.is_public),
+            file_count: fileCount,
+            created_at: metadata.created_at || stats.birthtime,
+            updated_at: metadata.updated_at || stats.mtime
+          };
+        }));
+
+      if (buckets.length > 0) {
+        return buckets;
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        logError(error, { context: 'StorageService.listUserBucketsLocal', userId });
+      }
+    }
+
+    return [{
+      id: 'default',
+      name: 'Default',
+      description: 'Default storage bucket',
+      is_public: false,
+      file_count: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    }];
+  }
+
+  async listUserBucketsS3(userId) {
+    await this.ensureReady();
+
+    const prefix = `files/${userId}/`;
+    const buckets = [];
+    const seen = new Set();
+    let continuationToken;
+
+    do {
+      const command = new ListObjectsV2Command({
+        Bucket: this.bucketName,
+        Prefix: prefix,
+        Delimiter: '/',
+        ContinuationToken: continuationToken
+      });
+
+      const response = await this.s3Client.send(command);
+
+      for (const prefixEntry of response.CommonPrefixes || []) {
+        const fullPrefix = prefixEntry.Prefix;
+        const bucketId = fullPrefix.slice(prefix.length).replace(/\/$/, '');
+
+        if (!bucketId || seen.has(bucketId)) {
+          continue;
+        }
+
+        seen.add(bucketId);
+
+        const metadata = await this.readBucketMetadataS3(userId, bucketId);
+
+        // Compute live stats (file count and first/last upload) if not present
+        let fileCount = metadata?.file_count ?? null;
+        let firstUploadedAt = metadata?.created_at || null;
+        let lastUploadedAt = metadata?.updated_at || null;
+        if (fileCount == null || firstUploadedAt == null || lastUploadedAt == null) {
+          try {
+            const stats = await this.computeBucketStatsS3(userId, bucketId);
+            fileCount = fileCount ?? stats.fileCount;
+            firstUploadedAt = firstUploadedAt || stats.firstUploadedAt || null;
+            lastUploadedAt = lastUploadedAt || stats.lastUploadedAt || firstUploadedAt || null;
+          } catch (e) {
+            logError(e, { context: 'StorageService.listUserBucketsS3.computeStats', userId, bucketId });
+          }
+        }
+
+        buckets.push({
+          id: bucketId,
+          name: metadata?.name || bucketId,
+          description: metadata?.description || `Bucket: ${bucketId}`,
+          is_public: typeof metadata?.is_public === 'boolean'
+            ? metadata.is_public
+            : bucketId.includes('public'),
+          file_count: typeof fileCount === 'number' ? fileCount : 0,
+          created_at: firstUploadedAt || new Date(),
+          updated_at: lastUploadedAt || firstUploadedAt || new Date()
+        });
+      }
+
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    if (buckets.length === 0) {
+      return [{
+        id: 'default',
+        name: 'Default',
+        description: 'Default storage bucket',
+        is_public: false,
+        file_count: 0,
+        created_at: new Date(),
+        updated_at: new Date()
+      }];
+    }
+
+    buckets.sort((a, b) => a.name.localeCompare(b.name));
+    return buckets;
+  }
+
+  // Compute file count and first/last modified timestamps for a bucket in S3
+  async computeBucketStatsS3(userId, bucketId) {
+    const prefix = `files/${userId}/${bucketId}/`;
+    let continuationToken;
+    let fileCount = 0;
+    let first = null;
+    let last = null;
+    do {
+      const command = new ListObjectsV2Command({
+        Bucket: this.bucketName,
+        Prefix: prefix,
+        ContinuationToken: continuationToken
+      });
+      const response = await this.s3Client.send(command);
+      for (const obj of response.Contents || []) {
+        if (!obj.Key || obj.Key.endsWith('/') || obj.Key.endsWith('.meta.json')) continue;
+        // Only count direct files under the bucket (any depth counts toward file total)
+        fileCount += 1;
+        const lm = obj.LastModified ? new Date(obj.LastModified) : null;
+        if (lm) {
+          if (!first || lm < first) first = lm;
+          if (!last || lm > last) last = lm;
+        }
+      }
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    return { fileCount, firstUploadedAt: first, lastUploadedAt: last };
+  }
+
+  async readBucketMetadataLocal(bucketPath, bucketId, userId) {
+    try {
+      const metaPath = path.join(bucketPath, '.bucket.meta.json');
+      const metaContent = await fs.promises.readFile(metaPath, 'utf8');
+      return JSON.parse(metaContent);
+    } catch {
+      return {
+        id: bucketId,
+        name: bucketId,
+        user_id: userId,
+        is_public: false
+      };
+    }
+  }
+
+  async readBucketMetadataS3(userId, bucketId) {
+    try {
+      const key = `files/${userId}/${bucketId}/.bucket.meta.json`;
+      const command = new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: key
+      });
+
+      const response = await this.s3Client.send(command);
+      const buffer = await this.streamToBuffer(response.Body);
+      return JSON.parse(buffer.toString('utf8'));
+    } catch (error) {
+      if (error?.name !== 'NoSuchKey' && error?.$metadata?.httpStatusCode !== 404) {
+        logError(error, { context: 'StorageService.readBucketMetadataS3', userId, bucketId });
+      }
+
+      return {
+        id: bucketId,
+        name: bucketId,
+        user_id: userId,
+        is_public: bucketId.includes('public')
+      };
+    }
+  }
+
   async listBucketFolderLocal(userId, bucketId, folderPath = '') {
     const basePath = path.join(process.cwd(), 'storage', 'files', userId, bucketId);
     const targetPath = folderPath
@@ -938,6 +1226,31 @@ class StorageService {
       });
       throw error;
     }
+  }
+
+  // Helper: derive metric labels from metadata and key
+  extractMetricLabelsFromMetadata(key, meta) {
+    // meta may be S3 metadata (lowercased keys) or our JSON sidecar
+    const m = meta || {};
+    const appId = m.appId || m.appid || m.application_id || 'dailey-media-api';
+    const access = m.access || (m.is_public ? 'public' : 'private') || 'private';
+    let bucketId = m.bucketId || m.bucket_id || m.bucket || null;
+    if (!bucketId) {
+      // Derive from key: files/{userId}/{bucketId}/...
+      const parts = key.split('/');
+      const idx = parts.indexOf('files');
+      if (idx >= 0 && parts.length > idx + 2) {
+        bucketId = parts[idx + 2];
+      }
+    }
+    bucketId = bucketId || 'default';
+    const kind = m.variantOf || m.variantof || String(key).includes('/thumbnails/') ? 'variant' : 'original';
+    return {
+      bucket_id: String(bucketId),
+      app_id: String(appId),
+      access: String(access),
+      kind: String(kind)
+    };
   }
 }
 

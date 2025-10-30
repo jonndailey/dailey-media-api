@@ -190,6 +190,13 @@ Complete endpoint documentation available at `/docs` (Swagger UI).
 | GET    | `/api/analytics`      | Usage statistics            |
 | POST   | `/api/auth/mfa/setup` | Setup MFA (TOTP)           |
 
+### Application scoping
+
+- Every media row is tied to an `application_id`. Authenticated API clients inherit this automatically from the issued API key or JWT.
+- When auth bypass is enabled for local development (`DISABLE_AUTH=true`), the server falls back to `application_id = 'dailey-media-api'`. If you migrated assets for another product (e.g. Castingly), include `app_id=castingly` in `/api/files` or `/api/media` requests so those records are returned.
+- The DMAPI web UI follows the same rule: make sure tabs that should surface Castingly data append `?app_id=castingly` (or expose a selector for other app ids).
+- Primary tenant admins can use the application selector in the DMAPI UI header to switch between `castingly`, `dailey-media-api`, and other registered apps. The buckets and files tabs automatically reload for the selected scope.
+
 ## 9. Security Features
 
 ### Multi-Factor Authentication
@@ -264,6 +271,12 @@ Access comprehensive analytics via the web interface or API:
 - Error rate monitoring
 - Performance metrics
 
+Live totals (dynamic) — avoid hard-coded numbers:
+- DB-backed (if `DATABASE_URL` is set):
+  - `SELECT COUNT(*) AS total_files, SUM(file_size) AS total_bytes FROM media_files WHERE application_id='castingly';`
+- Storage fallback (no DB):
+  - Iterate `/api/buckets/:bucketId/files?user_id=<userId>&path=actors/<userId>/<folder>` and sum `file_size` for folders (headshots, reels, resumes, documents). Include `app_id=castingly` where applicable.
+
 ## 13. Support & Resources
 
 - 📖 **Interactive Docs**: `/docs` (Swagger UI)
@@ -271,3 +284,11 @@ Access comprehensive analytics via the web interface or API:
 - 💻 **CLI Tool**: `@dailey/media-cli`
 - 📦 **TypeScript SDK**: Full type safety and IntelliSense
 - 🐛 **Issues**: [GitHub Issues](https://github.com/jonndailey/dailey-media-api/issues)
+
+## Appendix: Quick Reference (PDF, Conversion, Image Transform)
+
+- Image Transform: `GET /api/files/:id/transform?width=800&format=webp&quality=82&fit=inside`
+- Conversion (from URL): `POST /api/conversion/from-url` → import + convert in one step
+- PDF Capabilities: `GET /api/pdf/capabilities`
+- PDF Merge/Split/Rotate/Compress: see [PDF Operations](./pdf.md)
+- PDF Watermark/Stamp/Flatten/Images/Forms: see [PDF Operations](./pdf.md)

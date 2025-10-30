@@ -91,7 +91,7 @@ class ThumbnailService {
   async generateSingleThumbnail(imageBuffer, media, sizeName, format, sizeConfig, quality, originalMeta) {
     try {
       // Create transformer pipeline
-      let transformer = sharp(imageBuffer);
+      let transformer = sharp(imageBuffer).rotate(); // honor EXIF orientation consistently
 
       // Apply size transformation
       if (sizeConfig.fit === 'cover') {

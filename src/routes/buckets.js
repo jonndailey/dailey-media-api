@@ -16,74 +16,38 @@ const canUseDatabase = (...methods) =>
 // List user's buckets
 router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
   try {
-    if (canUseDatabase('getUserBuckets')) {
-      const buckets = await databaseService.getUserBuckets(req.userId);
-      res.json({
-        success: true,
-        buckets
-      });
-    } else {
-      // Fallback: scan filesystem for bucket directories
-      const userStoragePath = path.join(process.cwd(), 'storage', 'files', req.userId);
-      
-      let buckets = [];
+    const appId = req.query.app_id || req.appId;
+    let buckets = [];
+
+    if (canUseDatabase('listBucketsByApplication') && appId) {
       try {
-        const entries = await fs.readdir(userStoragePath, { withFileTypes: true });
-        
-        buckets = await Promise.all(
-          entries
-            .filter(entry => entry.isDirectory())
-            .map(async (entry) => {
-              const bucketPath = path.join(userStoragePath, entry.name);
-              const stats = await fs.stat(bucketPath);
-              
-              // Count files in bucket
-              const files = await fs.readdir(bucketPath);
-              const fileCount = files.filter(f => !f.endsWith('.meta.json')).length;
-              
-              return {
-                id: entry.name,
-                name: entry.name,
-                description: `Bucket: ${entry.name}`,
-                is_public: false,
-                file_count: fileCount,
-                created_at: stats.birthtime,
-                updated_at: stats.mtime
-              };
-            })
-        );
-        
-        // Add default bucket if no buckets exist
-        if (buckets.length === 0) {
-          buckets.push({
-            id: 'default',
-            name: 'Default',
-            description: 'Default storage bucket',
-            is_public: false,
-            file_count: 0,
-            created_at: new Date(),
-            updated_at: new Date()
-          });
-        }
-        
-      } catch (dirError) {
-        // No user directory exists yet
-        buckets = [{
-          id: 'default',
-          name: 'Default',
-          description: 'Default storage bucket',
-          is_public: false,
-          file_count: 0,
-          created_at: new Date(),
-          updated_at: new Date()
-        }];
+        buckets = await databaseService.listBucketsByApplication(appId);
+      } catch (dbError) {
+        logError(dbError, { context: 'buckets.list.database', userId: req.userId, appId });
       }
-      
-      res.json({
-        success: true,
-        buckets
-      });
+      // If DB has no records (e.g., legacy objects not yet migrated), fall back to storage scan
+      if (!Array.isArray(buckets) || buckets.length === 0) {
+        buckets = await storageService.listUserBuckets(req.userId);
+      }
+    } else if (canUseDatabase('getUserBuckets')) {
+      try {
+        buckets = await databaseService.getUserBuckets(req.userId);
+      } catch (dbError) {
+        logError(dbError, { context: 'buckets.list.userBuckets', userId: req.userId });
+      }
+      if (!Array.isArray(buckets) || buckets.length === 0) {
+        buckets = await storageService.listUserBuckets(req.userId);
+      }
     }
+
+    if (!Array.isArray(buckets) || buckets.length === 0) {
+      buckets = await storageService.listUserBuckets(req.userId);
+    }
+
+    res.json({
+      success: true,
+      buckets
+    });
   } catch (error) {
     logError(error, { context: 'buckets.list', userId: req.userId });
     res.status(500).json({
@@ -276,15 +240,89 @@ router.post('/:bucketId/folders', authenticateToken, requireScope('upload'), asy
 router.get('/:bucketId/files', authenticateToken, requireScope('read'), async (req, res) => {
   try {
     const { bucketId } = req.params;
-    const { path: requestPath = '' } = req.query;
+    const { path: requestPath = '', user_id: explicitUserId } = req.query;
+    const appId = req.query.app_id || req.appId;
     const normalizedPath = normalizeRelativePath(typeof requestPath === 'string' ? requestPath : '');
+    const hasDatabase = typeof databaseService.isAvailable === 'function' && databaseService.isAvailable();
+
+    // Root listing: show user scopes when we have application context
+    if (!normalizedPath && !explicitUserId && hasDatabase && typeof databaseService.getBucketUsersByApplication === 'function' && appId) {
+      try {
+        const users = await databaseService.getBucketUsersByApplication(appId, bucketId);
+        if (users.length > 0) {
+          const folders = users.map(user => ({
+            id: user.user_id,
+            name: user.user_id,
+            is_folder: true,
+            file_count: user.file_count,
+            uploaded_at: user.last_uploaded_at,
+            created_at: user.first_uploaded_at,
+            bucket_id: bucketId,
+            metadata: {
+              userId: user.user_id,
+              fileCount: user.file_count,
+              firstUploadedAt: user.first_uploaded_at,
+              lastUploadedAt: user.last_uploaded_at
+            }
+          }));
+
+          return res.json({
+            success: true,
+            files: folders,
+            current_path: '',
+            bucket_id: bucketId
+          });
+        }
+      } catch (userError) {
+        logError(userError, {
+          context: 'buckets.getFiles.bucketUsers',
+          bucketId,
+          appId
+        });
+      }
+    }
+
+    // Determine which user scope to inspect
+    let targetUserId = explicitUserId || '';
+    let folderPath = normalizedPath;
+
+    if (normalizedPath) {
+      const segments = normalizedPath.split('/').filter(Boolean);
+      if (segments.length) {
+        // Only derive targetUserId from path when not explicitly provided via query
+        if (!targetUserId) {
+          targetUserId = segments.shift();
+        }
+        folderPath = segments.join('/');
+      }
+    }
+
+    if (!targetUserId) {
+      targetUserId = req.userId;
+    }
+
+    if (!targetUserId) {
+      return res.json({
+        success: true,
+        files: [],
+        current_path: normalizedPath,
+        bucket_id: bucketId
+      });
+    }
 
     try {
-      const items = await storageService.listBucketFolder(req.userId, bucketId, normalizedPath);
+      const items = await storageService.listBucketFolder(targetUserId, bucketId, folderPath);
+      const files = items.map(item => ({
+        ...item,
+        user_id: targetUserId,
+        bucket_id: bucketId,
+        folder_path: folderPath,
+        path: folderPath ? `${targetUserId}/${folderPath}` : targetUserId
+      }));
 
       res.json({
         success: true,
-        files: items,
+        files,
         current_path: normalizedPath,
         bucket_id: bucketId
       });

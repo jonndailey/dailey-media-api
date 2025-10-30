@@ -1,10 +1,10 @@
 {
   "overview": {
-    "totalFiles": 16,
-    "totalSize": 1606119,
+    "totalFiles": 2916,
+    "totalSize": 6344167305,
     "totalAccesses": 0,
     "uniqueUsers": 0,
-    "lastUpdated": "2025-10-14T04:20:07.079Z"
+    "lastUpdated": "2025-10-23T02:43:33.097Z"
   },
   "fileAccesses": {},
   "userAccesses": {},
@@ -117,6 +117,302 @@
         0,
         0
       ]
+    },
+    "2025-10-16": {
+      "uploads": 1610,
+      "accesses": 0,
+      "bandwidth": 0,
+      "uniqueUsers": [
+        "test-user-id"
+      ],
+      "uniqueEmails": [
+        "test@example.com"
+      ],
+      "hourlyAccesses": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "2025-10-17": {
+      "uploads": 1112,
+      "accesses": 0,
+      "bandwidth": 0,
+      "uniqueUsers": [
+        "test-user-id"
+      ],
+      "uniqueEmails": [
+        "test@example.com"
+      ],
+      "hourlyAccesses": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "2025-10-18": {
+      "uploads": 17,
+      "accesses": 0,
+      "bandwidth": 0,
+      "uniqueUsers": [
+        "test-user-id"
+      ],
+      "uniqueEmails": [
+        "test@example.com"
+      ],
+      "hourlyAccesses": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "2025-10-19": {
+      "uploads": 8,
+      "accesses": 0,
+      "bandwidth": 0,
+      "uniqueUsers": [
+        "test-user-id"
+      ],
+      "uniqueEmails": [
+        "test@example.com"
+      ],
+      "hourlyAccesses": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "2025-10-20": {
+      "uploads": 6,
+      "accesses": 0,
+      "bandwidth": 0,
+      "uniqueUsers": [
+        "test-user-id"
+      ],
+      "uniqueEmails": [
+        "test@example.com"
+      ],
+      "hourlyAccesses": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "2025-10-21": {
+      "uploads": 11,
+      "accesses": 0,
+      "bandwidth": 0,
+      "uniqueUsers": [
+        "test-user-id"
+      ],
+      "uniqueEmails": [
+        "test@example.com"
+      ],
+      "hourlyAccesses": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "2025-10-22": {
+      "uploads": 123,
+      "accesses": 0,
+      "bandwidth": 0,
+      "uniqueUsers": [
+        "test-user-id"
+      ],
+      "uniqueEmails": [
+        "test@example.com"
+      ],
+      "hourlyAccesses": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "2025-10-23": {
+      "uploads": 13,
+      "accesses": 0,
+      "bandwidth": 0,
+      "uniqueUsers": [
+        "test-user-id"
+      ],
+      "uniqueEmails": [
+        "test@example.com"
+      ],
+      "hourlyAccesses": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     }
   },
   "fileTypes": {
@@ -149,12 +445,20 @@
       "size": 0
     },
     "other": {
-      "count": 0,
-      "size": 0
+      "count": 3,
+      "size": 75192
     },
     "text": {
-      "count": 2,
-      "size": 40
+      "count": 5,
+      "size": 248
+    },
+    "image": {
+      "count": 2844,
+      "size": 6310916026
+    },
+    "document": {
+      "count": 50,
+      "size": 31569760
     }
   },
   "performance": {

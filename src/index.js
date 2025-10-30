@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import swaggerUi from 'swagger-ui-express';
 import config from './config/index.js';
+import { runPreflight } from './scripts/preflight.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,8 +21,13 @@ import serveRoutes from './routes/serve.js';
 import ocrRoutes from './routes/ocr.js';
 import conversionRoutes from './routes/conversion.js';
 import videoRoutes from './routes/video.js';
+import pdfRoutes from './routes/pdf.js';
+import coreRoutes from './routes/core.js';
+import actorsRoutes from './routes/actors.js';
+import forumRoutes from './routes/forum.js';
 import { errorHandler } from './middleware/error.js';
 import { requestLogger } from './middleware/logger.js';
+import { metricsMiddleware, metricsHandler } from './middleware/metrics.js';
 import databaseService from './services/databaseService.js';
 import analyticsService from './services/analyticsService.js';
 import videoProcessingService from './services/videoProcessingService.js';
@@ -41,6 +47,14 @@ import {
 
 const app = express();
 
+// Respect X-Forwarded-* headers from Nginx/Cloudflare for rate limits and IPs
+app.set('trust proxy', 1);
+
+// Run preflight checks only in production (fail-fast)
+if (config.isProduction) {
+  await runPreflight({ strict: true });
+}
+
 // Initialize database service
 await databaseService.initialize();
 await videoProcessingService.initialize();
@@ -54,6 +68,8 @@ app.use(compressionMiddleware);
 app.use(cors(corsOptions));
 app.use(parameterPollution);
 app.use(xssProtection);
+// Metrics timing
+app.use(metricsMiddleware);
 
 // Rate limiting
 app.use('/api/auth', authRateLimit);
@@ -93,6 +109,7 @@ app.use('/legal', express.static(path.join(__dirname, '../docs')));
 
 // API routes
 app.use('/health', healthRoutes);
+app.get('/metrics', metricsHandler);
 app.use('/api/auth', authRoutes);       // Authentication and MFA
 app.use('/api/keys', apiKeyRoutes);
 app.use('/api/files', filesRoutes);     // New comprehensive files endpoint
@@ -104,6 +121,10 @@ app.use('/api/serve', serveRoutes);     // File serving and public links
 app.use('/api/ocr', ocrRoutes);         // OCR and text extraction
 app.use('/api/conversion', conversionRoutes); // Document conversions
 app.use('/api/video', videoRoutes);     // Video transcoding and processing
+app.use('/api/pdf', pdfRoutes);         // PDF operations and forms
+app.use('/api/core', coreRoutes);       // Core proxy (health)
+app.use('/api/actors', actorsRoutes);   // Actor profile proxy + fallback
+app.use('/api/forum', forumRoutes);     // Forum proxy (activity)
 
 // API info endpoint
 app.get('/api', (req, res) => {
@@ -120,6 +141,8 @@ app.get('/api', (req, res) => {
       buckets: '/api/buckets',   // Bucket management
       analytics: '/api/analytics', // Usage statistics
       serve: '/api/serve',        // File serving and public links
+      actors: '/api/actors',      // Actor profile and media (proxy + fallback)
+      forum: '/api/forum',        // Forum proxy
       conversion: '/api/conversion', // Document conversion workflows
       video: '/api/video'           // Video/audio processing
     },

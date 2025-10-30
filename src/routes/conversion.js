@@ -3,6 +3,9 @@ import { authenticateToken, requireScope } from '../middleware/dailey-auth.js';
 import databaseService from '../services/databaseService.js';
 import documentConversionService from '../services/documentConversionService.js';
 import { logError } from '../middleware/logger.js';
+import storageService from '../services/storageService.js';
+import crypto from 'node:crypto';
+import mime from 'mime-types';
 
 const router = express.Router();
 
@@ -548,6 +551,121 @@ router.post('/batch', authenticateToken, requireScope('write'), async (req, res)
       success: false,
       error: error.message || 'Batch conversion failed'
     });
+  }
+});
+
+/**
+ * @swagger
+ * /api/conversion/from-url:
+ *   post:
+ *     tags: [Document Conversion]
+ *     summary: Import a document from a URL and convert it in one step
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [url, targetFormat]
+ *             properties:
+ *               url:
+ *                 type: string
+ *               targetFormat:
+ *                 type: string
+ *               filename:
+ *                 type: string
+ *               options:
+ *                 type: object
+ *               access:
+ *                 type: string
+ *                 enum: [public, private]
+ *               bucketId:
+ *                 type: string
+ *               folderPath:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Imported and converted
+ */
+router.post('/from-url', authenticateToken, requireScope('write'), async (req, res) => {
+  try {
+    if (!databaseService.isAvailable()) {
+      return res.status(503).json({ success: false, error: 'Database not available' });
+    }
+
+    const { url, targetFormat, filename, options = {}, access = 'private', bucketId = 'default', folderPath = '' } = req.body || {};
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return res.status(400).json({ success: false, error: 'Valid url is required' });
+    }
+    if (!targetFormat) {
+      return res.status(400).json({ success: false, error: 'targetFormat is required' });
+    }
+
+    // Download file
+    const response = await fetch(url);
+    if (!response.ok) {
+      return res.status(400).json({ success: false, error: `Failed to fetch URL (status ${response.status})` });
+    }
+    const arrayBuf = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuf);
+
+    // Determine filename/extension
+    const urlPath = (() => { try { return new URL(url).pathname; } catch { return ''; } })();
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    const headerExt = mime.extension(contentType) || 'bin';
+    const derivedName = filename || (urlPath && urlPath.split('/').pop()) || `download.${headerExt}`;
+    const ext = (derivedName.includes('.') ? derivedName.split('.').pop() : headerExt) || 'bin';
+
+    // Store original
+    const appId = req.appId || 'dailey-media-api';
+    const userId = req.userId || 'system';
+    const originalKey = storageService.generateMediaKey(userId, appId, derivedName, 'original');
+    const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+    await storageService.uploadFile(buffer, originalKey, storageService.getContentType(derivedName), {
+      originalFilename: derivedName,
+      userId,
+      appId,
+      bucketId,
+      folderPath,
+      access,
+      hash,
+    }, { access });
+
+    // Create DB record
+    const mediaId = await databaseService.createMediaFile({
+      storage_key: originalKey,
+      original_filename: derivedName,
+      title: null,
+      description: null,
+      user_id: userId,
+      application_id: req.appId || null,
+      collection_id: null,
+      file_size: buffer.length,
+      mime_type: storageService.getContentType(derivedName),
+      file_extension: ext,
+      content_hash: hash,
+      processing_status: 'completed',
+      is_public: access === 'public',
+      keywords: null,
+      categories: [],
+      metadata: { importedFromUrl: url, bucketId, folderPath, access },
+      exif_data: {}
+    });
+
+    // Convert
+    const result = await documentConversionService.convertMediaFile(
+      mediaId,
+      String(targetFormat),
+      options,
+      { requestingUserId: req.userId }
+    );
+
+    res.json({ success: true, importedMediaId: mediaId, conversion: result });
+  } catch (error) {
+    logError(error, { context: 'conversion.fromUrl', userId: req.userId });
+    res.status(error.statusCode || 500).json({ success: false, error: error.message || 'Failed to import and convert' });
   }
 });
 

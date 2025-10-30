@@ -277,6 +277,17 @@ console.log({
 });
 ```
 
+### Live Totals (Dynamic)
+
+Avoid hard-coding “Total Files” or “Storage Used” in documentation. Fetch live values instead:
+
+- DB-backed (when `DATABASE_URL` is configured):
+  - `SELECT COUNT(*) AS total_files, SUM(file_size) AS total_bytes FROM media_files WHERE application_id='castingly';`
+
+- Storage fallback (no DB): aggregate via bucket listings:
+  - `GET /api/buckets/:bucketId/files?user_id=<userId>&path=actors/<userId>/<folder>` and sum file_count and file_size for folders like `headshots`, `reels`, `resumes`, `documents`.
+  - Include `app_id=castingly` in API calls where applicable.
+
 ### Available Periods
 
 - `1d` - Last 24 hours

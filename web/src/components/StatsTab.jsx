@@ -116,6 +116,34 @@ export default function StatsTab() {
 
   const regionStats = stats.accessPatterns?.regions || []
 
+  const StatCard = ({ title, value, icon: IconEl, accent = 'blue', footerLabel, footerValue }) => {
+    const iconBg = {
+      blue: 'bg-blue-50 text-blue-600',
+      green: 'bg-green-50 text-green-600',
+      orange: 'bg-orange-50 text-orange-600'
+    }[accent] || 'bg-slate-50 text-slate-600';
+
+    return (
+      <div className="h-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-slate-600">{title}</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p>
+          </div>
+          <div className={`w-12 h-12 ${iconBg} rounded-lg flex items-center justify-center`}>
+            <IconEl className="h-6 w-6" />
+          </div>
+        </div>
+        {footerLabel && (
+          <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-sm">
+            <span className="text-slate-600">{footerLabel}</span>
+            <span className="font-medium text-slate-900">{footerValue}</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -153,65 +181,42 @@ export default function StatsTab() {
       </div>
 
       {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Total Files</p>
-              <p className="text-2xl font-bold text-slate-900">{stats.overview.totalFiles.toLocaleString()}</p>
-            </div>
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <FileText className="h-6 w-6 text-blue-600" />
-            </div>
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-sm text-slate-600">Storage Used</span>
-            <span className="text-sm font-medium text-slate-900">{stats.overview.totalSize}</span>
-          </div>
-        </div>
-
-        <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Total Accesses</p>
-              <p className="text-2xl font-bold text-slate-900">{stats.overview.totalAccesses.toLocaleString()}</p>
-            </div>
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <Eye className="h-6 w-6 text-green-600" />
-            </div>
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-sm text-slate-600">Unique Users</span>
-            <span className="text-sm font-medium text-slate-900">{stats.overview.uniqueUsers}</span>
-          </div>
-        </div>
-
-        <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Avg Response Time</p>
-              <p className="text-2xl font-bold text-slate-900">{stats.overview.avgResponseTime}</p>
-            </div>
-            <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-              <Clock className="h-6 w-6 text-orange-600" />
-            </div>
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-sm text-slate-600">Uptime</span>
-            <span className="text-sm font-medium text-green-700">{stats.overview.uptime}</span>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard
+          title="Total Files"
+          value={stats.overview.totalFiles.toLocaleString()}
+          icon={FileText}
+          accent="blue"
+          footerLabel="Storage Used"
+          footerValue={stats.overview.totalSize}
+        />
+        <StatCard
+          title="Total Accesses"
+          value={stats.overview.totalAccesses.toLocaleString()}
+          icon={Eye}
+          accent="green"
+          footerLabel="Unique Users"
+          footerValue={stats.overview.uniqueUsers}
+        />
+        <StatCard
+          title="Avg Response Time"
+          value={stats.overview.avgResponseTime}
+          icon={Clock}
+          accent="orange"
+          footerLabel="Uptime"
+          footerValue={stats.overview.uptime}
+        />
       </div>
 
       {/* Trends */}
-      <div className="bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl p-6">
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
           <TrendingUp className="h-5 w-5 mr-2" />
           Trends ({timeRanges.find(r => r.value === timeRange)?.label})
         </h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 bg-slate-50 rounded-lg">
+          <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-slate-600">Files Uploaded</span>
               {formatChange(stats.trends.filesUploaded.change)}
@@ -220,7 +225,7 @@ export default function StatsTab() {
             <p className="text-xs text-slate-500">Previous: {stats.trends.filesUploaded.previous}</p>
           </div>
 
-          <div className="p-4 bg-slate-50 rounded-lg">
+          <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-slate-600">File Accesses</span>
               {formatChange(stats.trends.fileAccesses.change)}
@@ -229,7 +234,7 @@ export default function StatsTab() {
             <p className="text-xs text-slate-500">Previous: {stats.trends.fileAccesses.previous.toLocaleString()}</p>
           </div>
 
-          <div className="p-4 bg-slate-50 rounded-lg">
+          <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-slate-600">Bandwidth</span>
               {formatChange(stats.trends.bandwidth.change)}
@@ -238,7 +243,7 @@ export default function StatsTab() {
             <p className="text-xs text-slate-500">Previous: {stats.trends.bandwidth.previous}</p>
           </div>
 
-          <div className="p-4 bg-slate-50 rounded-lg">
+          <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm text-slate-600">API Calls</span>
               {formatChange(stats.trends.apiCalls.change)}

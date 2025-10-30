@@ -140,8 +140,22 @@ Set up GitHub Actions for:
 ### Issue Templates
 
 Already created in `.github/ISSUE_TEMPLATE/`:
-- `epic.md` - For large initiatives
-- `feature.md` - For new features
+- `feature_request.md` - For new features
+- `task.md` - For concrete implementation tasks
+
+### Import Backlog Items from docs/BACKLOG.md
+
+Use the helper to turn the documented backlog into GitHub issues automatically:
+
+```bash
+# Dry run to preview the gh commands
+./scripts/create-issues.sh --dry-run
+
+# Create the issues
+./scripts/create-issues.sh
+```
+
+The script reads `docs/BACKLOG.md` and creates issues titled by each backlog line (labelled `enhancement,api`). Adjust labels and bodies as needed in the script.
 
 ### Pull Request Template
 

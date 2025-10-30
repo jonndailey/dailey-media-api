@@ -158,7 +158,23 @@ curl http://localhost:5174/api/upload/formats
 - `GET /api/media/:id` - Retrieve media metadata and URLs
 - `GET /api/media` - List media with filtering
 - `DELETE /api/media/:id` - Delete media files
+
+## 📚 Docs
+
+- Troubleshooting: `TROUBLESHOOTING.md`
+- Integration tips: `docs/INTEGRATION.md`
+- Deployment runbook: `docs/DEPLOYMENT.md`
+- Monitoring and Grafana/Prometheus: `docs/MONITORING.md`
 - `GET /api/media/:id/transform` - Dynamic image transformation
+
+### Core Auth Integration
+
+- DMAPI accepts Bearer tokens issued by DAILEY CORE and verifies them locally via JWKS.
+- UI login flows should use app/tenant slugs with Core; do not rely on client ids.
+- See:
+  - Core Integration Guide: `../dailey-core/INTEGRATION_GUIDE.md` (Slug‑based login, JWKS validation)
+  - Production details: `docs/DEPLOYMENT_CORE_INTEGRATION.md` (Token Validation Strategy)
+  - MySQL cluster access: `../dailey-core/docs/MYSQL_CORE_DMAPI_CONNECTION_GUIDE.md`
 
 ### Text Extraction (OCR)
 - `GET /api/ocr/languages` - Inspect supported languages and OCR capabilities
@@ -206,6 +222,8 @@ curl http://localhost:5174/api/upload/formats
 
 ### File Serving
 - `GET /api/serve/files/:userId/:bucketId/*` - Serve files with nested path support
+  - In production (S3), this issues a 302 redirect to a public URL or pre-signed URL; it does not read from local disk
+  - In development (local storage), this streams from the `storage/` directory
 - `GET /api/serve/files/:id/content` - Serve file by ID (authenticated)
 - `POST /api/serve/files/:id/public-link` - Generate public access URL
 - `GET /api/serve/public/:token` - Access files via public link
@@ -257,6 +275,12 @@ curl http://localhost:5174/api/upload/formats
    VALUES ('test-user-id', 'test-user-id', 'test@example.com', 'Test User')
    ON DUPLICATE KEY UPDATE email = VALUES(email);
    ```
+
+## 📚 Additional Docs
+
+- Core HA Runbook: `docs/CORE_HA_RUNBOOK.md`
+- DMAPI Deployment Checklist: `docs/DMAPI_DEPLOYMENT_RUNBOOK.md`
+- Core Integration (Auth/CORS & Cloudflare): `docs/DEPLOYMENT_CORE_INTEGRATION.md`
 
 4. **Start development server**
 

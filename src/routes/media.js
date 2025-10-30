@@ -6,6 +6,38 @@ import { logInfo, logError } from '../middleware/logger.js';
 
 const router = express.Router();
 
+// Private object proxy: generate a short-lived URL and redirect
+router.get('/proxy', authenticateToken, async (req, res) => {
+  try {
+    const { key, expires = 300, disposition } = req.query;
+    if (!key || typeof key !== 'string') {
+      return res.status(400).json({ success: false, error: 'Missing required query param: key' });
+    }
+    // basic guardrails
+    const normalized = String(key);
+    if (normalized.includes('..') || normalized.startsWith('/') || normalized.startsWith('http')) {
+      return res.status(400).json({ success: false, error: 'Invalid key' });
+    }
+
+    // Optionally validate viewer permissions here (owner/admin). Keeping permissive for cross-actor views where UI enforces auth.
+    const signedUrl = await storageService.getSignedUrl(normalized, Math.min(parseInt(expires, 10) || 300, 3600));
+
+    // If caller wants a content disposition, attach it via signed URL if possible
+    let redirectUrl = signedUrl;
+    if (disposition && typeof disposition === 'string') {
+      const u = new URL(signedUrl, 'http://localhost'); // base for URL parsing safety
+      u.searchParams.set('response-content-disposition', disposition);
+      redirectUrl = u.toString().replace('http://localhost', '');
+    }
+
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    return res.redirect(302, redirectUrl);
+  } catch (error) {
+    logError(error, { context: 'media.proxy', key: req.query?.key });
+    return res.status(500).json({ success: false, error: 'Failed to proxy media' });
+  }
+});
+
 // List media items with pagination and filtering
 router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
   try {
@@ -37,11 +69,14 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
         orderDirection: order_direction
       };
 
-      const results = await databaseService.searchMediaFiles(filters, pagination);
-      const totalCount = await databaseService.countMediaFiles(filters);
+      const {
+        files,
+        total: totalCount,
+        hasMore
+      } = await databaseService.listMediaFiles(filters, pagination);
 
       // Add URLs to each media file
-      const filesWithUrls = await Promise.all(results.map(async file => {
+      const filesWithUrls = await Promise.all(files.map(async file => {
         const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
         const thumbnailAccess = file.thumbnail_key
           ? await storageService.getAccessDetails(file.thumbnail_key, { access: file.is_public ? 'public' : 'private' })
@@ -64,7 +99,7 @@ router.get('/', authenticateToken, requireScope('read'), async (req, res) => {
           total: totalCount,
           limit: pagination.limit,
           offset: pagination.offset,
-          has_more: (pagination.offset + results.length) < totalCount
+          has_more: hasMore
         }
       });
     } else {
@@ -237,7 +272,10 @@ router.get('/files/:id', authenticateToken, requireScope('read'), async (req, re
           email: req.user?.email,
           roles: req.userRoles,
           userAgent: req.get('User-Agent'),
-          ip: req.ip
+          ip: req.ip,
+          appId: req.appId,
+          referer: req.get('Referer'),
+          tenantId: Array.isArray(req.userTenants) && req.userTenants.length === 1 ? req.userTenants[0].id : null
         };
         
         await analyticsService.trackFileAccess(id, userContext);
@@ -506,13 +544,16 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
         offset: parseInt(offset)
       };
 
-      const results = await databaseService.searchMediaFiles(filters, pagination);
-      const totalCount = await databaseService.countMediaFiles(filters);
+      const {
+        files,
+        total: totalCount,
+        hasMore
+      } = await databaseService.listMediaFiles(filters, pagination);
 
       res.json({
         success: true,
         query: q,
-        results: await Promise.all(results.map(async file => {
+        results: await Promise.all(files.map(async file => {
           const accessDetails = await storageService.getAccessDetails(file.storage_key, { access: file.is_public ? 'public' : 'private' });
           return {
             ...file,
@@ -525,7 +566,7 @@ router.get('/search', authenticateToken, requireScope('read'), async (req, res) 
           total: totalCount,
           limit: pagination.limit,
           offset: pagination.offset,
-          has_more: (pagination.offset + results.length) < totalCount
+          has_more: hasMore
         }
       });
     } else {

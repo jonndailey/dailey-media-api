@@ -17,6 +17,7 @@ The Dailey Media API bundles a lightweight document conversion engine that turns
 | `GET` | `/api/conversion/supported` | Discover supported source/target formats and feature flags |
 | `POST` | `/api/conversion/{mediaFileId}/convert` | Convert a single media file to a new format |
 | `POST` | `/api/conversion/batch` | Run a batch of conversions (max size configurable) |
+| `POST` | `/api/conversion/from-url` | Import a document from a URL and convert in one step |
 | `GET` | `/api/conversion/{mediaFileId}/jobs` | Paginated history of conversion jobs per media item |
 | `GET` | `/api/conversion/jobs/{jobId}` | Retrieve a specific conversion job record |
 
@@ -87,6 +88,28 @@ Authorization: Bearer <token>
 ```
 
 When the database is reachable the API creates a `batchId` that links individual job records. Each job persists source format, target format, status, duration, output storage key, and any errors.
+
+## Import and Convert from URL
+
+Use this convenience endpoint to fetch a remote document, store it as a media item, and immediately convert it to a desired format.
+
+```http
+POST /api/conversion/from-url
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "url": "https://example.com/myfile.docx",
+  "targetFormat": "pdf",
+  "filename": "myfile.docx",
+  "options": { "watermark": "DAILEY" },
+  "access": "private",
+  "bucketId": "default",
+  "folderPath": "imports/dailey"
+}
+```
+
+Response includes the new media ID and the conversion result. The original is kept under the same access policy for audit.
 
 ## Configuration
 

@@ -36,9 +36,9 @@ export const config = {
   // Authentication
   jwt: {
     secret: process.env.JWT_SECRET,
-    issuer: process.env.JWT_ISSUER || 'https://core.dailey.dev',
+    issuer: process.env.JWT_ISSUER || 'https://core.dailey.cloud',
     audience: process.env.JWT_AUDIENCE || 'dailey-media-api',
-    jwksUrl: process.env.CORE_JWKS_URL || 'https://core.dailey.dev/.well-known/jwks.json'
+    jwksUrl: process.env.CORE_JWKS_URL || 'https://core.dailey.cloud/.well-known/jwks.json'
   },
 
   // File Processing

@@ -10,10 +10,22 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import LoginForm from './components/LoginForm'
 import { Upload, Folder, BarChart3, BookOpen, KeyRound, FolderOpen, Image, FileText, Package, Eye, Zap, Plus, Settings, ArrowLeft, ChevronRight, MoreVertical, Download, Info, ExternalLink, Copy, X, ArrowUpDown, Trash2 } from 'lucide-react'
 
+const APP_OPTIONS = [
+  { value: 'castingly', label: 'Castingly' },
+  { value: 'dailey-media-api', label: 'Dailey Media API' }
+]
+
 // Main authenticated app content
 function AuthenticatedApp() {
   const [activeTab, setActiveTab] = useState('upload')
   const [error, setError] = useState(null)
+  const [selectedAppId, setSelectedAppId] = useState(() => {
+    if (typeof window === 'undefined') {
+      return APP_OPTIONS[0].value
+    }
+    const stored = window.localStorage.getItem('dmapi_selected_app')
+    return APP_OPTIONS.some(option => option.value === stored) ? stored : APP_OPTIONS[0].value
+  })
   const { user, logout, isAdmin, canViewAnalytics } = useAuth()
 
   // Simple error boundary
@@ -25,6 +37,12 @@ function AuthenticatedApp() {
     window.addEventListener('error', handleError)
     return () => window.removeEventListener('error', handleError)
   }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('dmapi_selected_app', selectedAppId)
+    }
+  }, [selectedAppId])
 
   if (error) {
     return (
@@ -62,6 +80,22 @@ function AuthenticatedApp() {
             </div>
             
             <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Tenant
+                </span>
+                <select
+                  value={selectedAppId}
+                  onChange={(e) => setSelectedAppId(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  {APP_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="text-sm text-slate-600">
                 Welcome, <span className="font-medium">{user?.name || user?.email}</span>
               </div>
@@ -122,11 +156,11 @@ function AuthenticatedApp() {
 
             <div className="p-6">
               <Tabs.Content value="upload">
-                <UploadTab />
+                <UploadTab selectedAppId={selectedAppId} />
               </Tabs.Content>
               
               <Tabs.Content value="buckets">
-                <BucketsSection />
+                <BucketsSection selectedAppId={selectedAppId} />
               </Tabs.Content>
               
               {canViewAnalytics() && (
@@ -153,7 +187,7 @@ function AuthenticatedApp() {
 
 // Simple Stats Section  
 // Enhanced Buckets & Files Management Section
-function BucketsSection() {
+function BucketsSection({ selectedAppId = 'dailey-media-api' }) {
   const [buckets, setBuckets] = useState([])
   const [currentView, setCurrentView] = useState('buckets') // 'buckets' or 'files'
   const [selectedBucket, setSelectedBucket] = useState(null)
@@ -186,12 +220,19 @@ function BucketsSection() {
   const { makeAuthenticatedRequest } = useAuth()
   
   useEffect(() => {
+    setCurrentView('buckets')
+    setSelectedBucket(null)
+    setCurrentPath('')
+    setFiles([])
+  }, [selectedAppId])
+
+  useEffect(() => {
     if (currentView === 'buckets') {
       fetchBuckets()
     } else if (currentView === 'files' && selectedBucket) {
       fetchBucketFiles(selectedBucket.id, currentPath)
     }
-  }, [currentView, selectedBucket, currentPath])
+  }, [currentView, selectedBucket, currentPath, selectedAppId])
   
   useEffect(() => {
     if (closeTimeoutRef.current) {
@@ -364,9 +405,21 @@ function BucketsSection() {
   const fetchBuckets = async () => {
     try {
       setLoading(true)
-      const response = await makeAuthenticatedRequest('/api/buckets')
+      const params = new URLSearchParams()
+      if (selectedAppId) {
+        params.set('app_id', selectedAppId)
+      }
+      const query = params.toString()
+      const response = await makeAuthenticatedRequest(`/api/buckets${query ? `?${query}` : ''}`)
       const data = await response.json()
-      setBuckets(data.buckets || [])
+      const bucketList = data.buckets || []
+      setBuckets(bucketList)
+      setSelectedBucket((current) => {
+        if (current && bucketList.some(bucket => bucket.id === current.id)) {
+          return current
+        }
+        return null
+      })
     } catch (err) {
       setError(err.message)
       console.error('Error fetching buckets:', err)
@@ -378,10 +431,14 @@ function BucketsSection() {
   const fetchBucketFiles = async (bucketId, path = '') => {
     try {
       setLoading(true)
-      const url = path 
-        ? `/api/buckets/${bucketId}/files?path=${encodeURIComponent(path)}`
-        : `/api/buckets/${bucketId}/files`
-      const response = await makeAuthenticatedRequest(url)
+      const params = new URLSearchParams()
+      if (selectedAppId) {
+        params.set('app_id', selectedAppId)
+      }
+      if (path) {
+        params.set('path', path)
+      }
+      const response = await makeAuthenticatedRequest(`/api/buckets/${bucketId}/files?${params.toString()}`)
       const data = await response.json()
       setFiles(data.files || [])
     } catch (err) {

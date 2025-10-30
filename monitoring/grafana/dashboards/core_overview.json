@@ -1,0 +1,72 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Core targets up",
+      "targets": [
+        { "expr": "sum(up{job=\"core_node\"})", "legendFormat": "core_node up" },
+        { "expr": "sum(up{job=\"core_app\"})",  "legendFormat": "core_app up" }
+      ],
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU usage % (core_node)",
+      "targets": [
+        {
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{job=\"core_node\",mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory used (bytes)",
+      "targets": [
+        {
+          "expr": "(node_memory_MemTotal_bytes{job=\"core_node\"} - node_memory_MemAvailable_bytes{job=\"core_node\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+    },
+    {
+      "type": "timeseries",
+      "title": "Disk usage % (ext4)",
+      "targets": [
+        {
+          "expr": "100 * (node_filesystem_size_bytes{job=\"core_node\",fstype=~\"ext4|xfs\"} - node_filesystem_free_bytes{job=\"core_node\",fstype=~\"ext4|xfs\"}) / node_filesystem_size_bytes{job=\"core_node\",fstype=~\"ext4|xfs\"}",
+          "legendFormat": "{{instance}} {{mountpoint}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4}
+    },
+    {
+      "type": "timeseries",
+      "title": "Load average (1m)",
+      "targets": [
+        {
+          "expr": "node_load1{job=\"core_node\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["core", "prometheus", "node-exporter"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Core Overview",
+  "uid": "core-overview",
+  "version": 1
+}
