@@ -4,6 +4,9 @@ import path from 'path';
 import mime from 'mime-types';
 // Using console.log for logging (logger middleware doesn't export a logger object)
 import { authenticateToken } from '../middleware/dailey-auth.js';
+import databaseService from '../services/databaseService.js';
+import analyticsService from '../services/analyticsService.js';
+import storageService from '../services/storageService.js';
 import config from '../config/index.js';
 
 const router = express.Router();
@@ -77,17 +80,27 @@ router.get('/files/:userId/:bucketId/*', async (req, res) => {
   try {
     const { userId, bucketId } = req.params;
     const filePath = req.params[0]; // This captures the rest of the path after bucketId
-    
-    // Construct file path in storage directory with bucket
+    const storageKey = `files/${userId}/${bucketId}/${filePath}`.replace(/\\/g, '/');
+
+    // If storage is S3, redirect to public or signed URL instead of reading local FS
+    if (config.storage?.type === 's3') {
+      try {
+        const access = await storageService.getAccessDetails(storageKey);
+        const target = access.publicUrl || access.signedUrl || null;
+        if (target) {
+          return res.status(302).set('Location', target).set('Cache-Control', access.publicUrl ? 'public, max-age=31536000' : 'private, max-age=0').end();
+        }
+      } catch (e) {
+        console.error('S3 serve redirect failed:', e?.message || e);
+      }
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Local storage fallback
     const storageDir = path.join(process.cwd(), 'storage', 'files', userId, bucketId);
     const fullFilePath = path.join(storageDir, filePath);
-    
-    // Check if file exists
     if (!fs.existsSync(fullFilePath)) {
-      return res.status(404).json({ 
-        error: 'File not found',
-        message: 'The requested file does not exist'
-      });
+      return res.status(404).json({ error: 'File not found', message: 'The requested file does not exist' });
     }
     
     // Get file stats
@@ -119,10 +132,73 @@ router.get('/files/:userId/:bucketId/*', async (req, res) => {
       
       const stream = fs.createReadStream(fullFilePath, { start, end });
       stream.pipe(res);
+      // Analytics (best-effort): Track ALL access including anonymous
+      try {
+        const storageKey = `files/${userId}/${bucketId}/${filePath}`.replace(/\\/g, '/');
+        const media = await databaseService.getMediaFileByStorageKey(storageKey);
+        if (media && media.id) {
+          // Extract app from referer (e.g., castingly.dailey.dev -> castingly)
+          const referer = req.get('Referer') || '';
+          let detectedApp = req.appId;
+          if (!detectedApp && referer.includes('castingly')) {
+            detectedApp = 'castingly';
+          }
+          
+          const userContext = {
+            userId: req.userId || 'anonymous',
+            user: req.user,
+            email: req.user?.email,
+            roles: req.userRoles || [],
+            userAgent: req.get('User-Agent'),
+            ip: req.ip,
+            appId: detectedApp || 'direct',
+            referer: referer,
+            tenantId: Array.isArray(req.userTenants) && req.userTenants.length === 1 ? req.userTenants[0].id : null,
+            eventType: 'download',
+            variantType: null
+          };
+          res.on('finish', () => {
+            // record access and bandwidth after response finishes
+            analyticsService.trackFileAccess(media.id, userContext).catch(() => {});
+            analyticsService.trackBandwidth(media.id, chunksize, userContext).catch(() => {});
+          });
+        }
+      } catch (_) { /* ignore analytics errors */ }
     } else {
       // Stream the entire file
       const stream = fs.createReadStream(fullFilePath);
       stream.pipe(res);
+      // Analytics (best-effort): Track ALL access including anonymous
+      try {
+        const storageKey = `files/${userId}/${bucketId}/${filePath}`.replace(/\\/g, '/');
+        const media = await databaseService.getMediaFileByStorageKey(storageKey);
+        if (media && media.id) {
+          // Extract app from referer (e.g., castingly.dailey.dev -> castingly)
+          const referer = req.get('Referer') || '';
+          let detectedApp = req.appId;
+          if (!detectedApp && referer.includes('castingly')) {
+            detectedApp = 'castingly';
+          }
+          
+          const userContext = {
+            userId: req.userId || 'anonymous',
+            user: req.user,
+            email: req.user?.email,
+            roles: req.userRoles || [],
+            userAgent: req.get('User-Agent'),
+            ip: req.ip,
+            appId: detectedApp || 'direct',
+            referer: referer,
+            tenantId: Array.isArray(req.userTenants) && req.userTenants.length === 1 ? req.userTenants[0].id : null,
+            eventType: 'view',
+            variantType: null
+          };
+          res.on('finish', () => {
+            analyticsService.trackFileAccess(media.id, userContext).catch(() => {});
+            analyticsService.trackBandwidth(media.id, fileSize, userContext).catch(() => {});
+          });
+        }
+      } catch (_) { /* ignore analytics errors */ }
     }
     
     // Log access
@@ -141,75 +217,26 @@ router.get('/files/:userId/:bucketId/*', async (req, res) => {
 router.get('/files/:id/content', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    
-    // In a real implementation, you would look up the file in the database
-    // For now, we'll serve files from the uploads directory
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    
-    // Find file by ID (this would normally be a database lookup)
-    const files = fs.readdirSync(uploadsDir);
-    const targetFile = files.find(file => file.startsWith(id));
-    
-    if (!targetFile) {
-      return res.status(404).json({ 
-        error: 'File not found',
-        message: 'The requested file does not exist or has been deleted'
-      });
+
+    if (!databaseService.isAvailable()) {
+      return res.status(503).json({ error: 'Database not available' });
     }
-    
-    const filePath = path.join(uploadsDir, targetFile);
-    
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ 
-        error: 'File not found',
-        message: 'The requested file does not exist on disk'
-      });
+
+    const file = await databaseService.getMediaFile(id);
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
     }
-    
-    // Get file stats
-    const stats = fs.statSync(filePath);
-    const fileSize = stats.size;
-    
-    // Determine MIME type
-    const mimeType = mime.lookup(filePath) || 'application/octet-stream';
-    
-    // Set appropriate headers
-    res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Length', fileSize);
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
-    res.setHeader('Content-Disposition', `inline; filename="${path.basename(targetFile)}"`);
-    
-    // Handle range requests for video/audio streaming
-    const range = req.headers.range;
-    if (range && (mimeType.startsWith('video/') || mimeType.startsWith('audio/'))) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunksize = (end - start) + 1;
-      
-      res.status(206);
-      res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
-      res.setHeader('Accept-Ranges', 'bytes');
-      res.setHeader('Content-Length', chunksize);
-      
-      const stream = fs.createReadStream(filePath, { start, end });
-      stream.pipe(res);
-    } else {
-      // Stream the entire file
-      const stream = fs.createReadStream(filePath);
-      stream.pipe(res);
-    }
-    
-    // Log access
-    console.log(`File served: ${targetFile} to user ${req.user?.email || 'unknown'}`);
-    
+
+    const contentType = file.mime_type || 'application/octet-stream';
+    const buffer = await storageService.getFileBuffer(file.storage_key);
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', file.is_public ? 'public, max-age=31536000' : 'private, max-age=0, no-store');
+    res.status(200).send(buffer);
   } catch (error) {
-    console.error('Error serving file:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      message: 'Failed to serve file content'
-    });
+    console.error('Error serving original by ID:', error);
+    res.status(500).json({ error: 'Failed to serve file content' });
   }
 });
 
@@ -307,6 +334,27 @@ router.get('/public/:token', async (req, res) => {
     // Stream the file
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
+    // Analytics (best-effort): record public access by media id from token
+    try {
+      const userContext = {
+        userId: null,
+        user: null,
+        email: null,
+        roles: [],
+        userAgent: req.get('User-Agent'),
+        ip: req.ip,
+        appId: req.appId,
+        referer: req.get('Referer'),
+        tenantId: null,
+        eventType: 'download',
+        variantType: null
+      };
+      const stats = fs.statSync(filePath);
+      res.on('finish', () => {
+        analyticsService.trackFileAccess(fileId, userContext).catch(() => {});
+        analyticsService.trackBandwidth(fileId, stats.size, userContext).catch(() => {});
+      });
+    } catch (_) { /* ignore */ }
     
     console.log(`Public file access: ${targetFile} via token`);
     
