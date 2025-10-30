@@ -88,6 +88,36 @@ router.get('/files/:userId/:bucketId/*', async (req, res) => {
         const access = await storageService.getAccessDetails(storageKey);
         const target = access.publicUrl || access.signedUrl || null;
         if (target) {
+          // Track analytics before redirecting
+          try {
+            const media = await databaseService.getMediaFileByStorageKey(storageKey);
+            if (media && media.id) {
+              // Extract app from referer (e.g., castingly.dailey.dev -> castingly)
+              const referer = req.get('Referer') || '';
+              let detectedApp = req.appId;
+              if (!detectedApp && referer.includes('castingly')) {
+                detectedApp = 'castingly';
+              }
+              
+              const userContext = {
+                userId: req.userId || 'anonymous',
+                user: req.user,
+                email: req.user?.email,
+                roles: req.userRoles || [],
+                userAgent: req.get('User-Agent'),
+                ip: req.ip,
+                appId: detectedApp || 'direct',
+                referer: referer,
+                tenantId: Array.isArray(req.userTenants) && req.userTenants.length === 1 ? req.userTenants[0].id : null,
+                eventType: 'view',
+                variantType: null
+              };
+              
+              // Fire and forget analytics tracking
+              analyticsService.trackFileAccess(media.id, userContext).catch(() => {});
+            }
+          } catch (_) { /* ignore analytics errors */ }
+          
           return res.status(302).set('Location', target).set('Cache-Control', access.publicUrl ? 'public, max-age=31536000' : 'private, max-age=0').end();
         }
       } catch (e) {
