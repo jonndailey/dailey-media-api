@@ -115,6 +115,11 @@ router.get('/files/:userId/:bucketId/*', async (req, res) => {
               
               // Fire and forget analytics tracking
               analyticsService.trackFileAccess(media.id, userContext).catch(() => {});
+              
+              // Estimate bandwidth for S3 redirects (actual size from media record)
+              if (media.file_size) {
+                analyticsService.trackBandwidth(media.id, media.file_size, userContext).catch(() => {});
+              }
             }
           } catch (_) { /* ignore analytics errors */ }
           

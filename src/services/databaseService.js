@@ -131,13 +131,27 @@ class DatabaseService {
   async getTopFilesSince(startDate, limit = 5) {
     try {
       if (!this.isAvailable()) return [];
-      const rows = await db.query(
-        'SELECT media_file_id, COUNT(*) AS accesses, COUNT(DISTINCT user_id) AS uniqueUsers, MAX(timestamp) AS lastAccessed FROM media_analytics WHERE timestamp >= ? AND event_type IN (\'view\',\'download\') GROUP BY media_file_id ORDER BY accesses DESC LIMIT ?',
-        [startDate, Number(limit)]
-      );
+      
+      // Ensure limit is a safe integer for SQL
+      const safeLimit = Math.min(Math.max(1, parseInt(limit) || 5), 100);
+      
+      // Log for debugging
+      logInfo('getTopFilesSince called', { startDate, limit: safeLimit });
+      
+      // Use template literal for LIMIT to avoid parameter binding issue
+      const query = `
+        SELECT media_file_id, COUNT(*) AS accesses, COUNT(DISTINCT user_id) AS uniqueUsers, MAX(timestamp) AS lastAccessed 
+        FROM media_analytics 
+        WHERE timestamp >= ? AND event_type IN ('view','download') 
+        GROUP BY media_file_id 
+        ORDER BY accesses DESC 
+        LIMIT ${safeLimit}
+      `;
+      
+      const rows = await db.query(query, [startDate]);
       return rows;
     } catch (error) {
-      logError(error, { context: 'databaseService.getTopFilesSince' });
+      logError(error, { context: 'databaseService.getTopFilesSince', startDate, limit });
       throw error;
     }
   }
